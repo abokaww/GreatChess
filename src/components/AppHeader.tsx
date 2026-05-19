@@ -1,17 +1,42 @@
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import type { User } from "@supabase/supabase-js";
 import { Crown, LogOut, Home, Bot, Trophy, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 
+function displayNameFromUser(user: User): string {
+  const meta = user.user_metadata ?? {};
+  const name =
+    (typeof meta.full_name === "string" && meta.full_name) ||
+    (typeof meta.name === "string" && meta.name) ||
+    null;
+  return name ?? user.email ?? "Игрок";
+}
+
 export function AppHeader() {
-  const { user, profile } = useAuth();
+  const { profile } = useAuth();
+  const [authUser, setAuthUser] = useState<User | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setAuthUser(data.user));
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   const signOut = async () => {
     await supabase.auth.signOut();
     navigate({ to: "/" });
   };
+
+  const displayName = authUser ? displayNameFromUser(authUser) : "Гость";
+  const elo = profile?.elo ?? 1000;
 
   return (
     <header className="sticky top-0 z-40 glass border-b border-border/50">
@@ -43,29 +68,24 @@ export function AppHeader() {
           ))}
         </nav>
         <div className="flex items-center gap-3">
-          {user && !profile?.is_guest ? (
+          <div className="hidden text-right sm:block">
+            <div className="text-sm font-medium leading-tight">{displayName}</div>
+            <div className="text-xs text-muted-foreground">{elo} ELO</div>
+          </div>
+          {authUser ? (
             <>
-              <div className="hidden text-right sm:block">
-                <div className="text-sm font-medium leading-tight">{profile?.full_name ?? "Игрок"}</div>
-                <div className="text-xs text-muted-foreground">{profile?.rating ?? 1200} ELO</div>
-              </div>
               {profile?.avatar_url ? (
                 <img src={profile.avatar_url} alt="" className="h-9 w-9 rounded-full border border-border" />
               ) : (
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-sm font-semibold">
-                  {(profile?.full_name ?? "?").charAt(0).toUpperCase()}
+                  {displayName.charAt(0).toUpperCase()}
                 </div>
               )}
               <Button variant="ghost" size="icon" onClick={signOut} title="Выйти">
                 <LogOut className="h-4 w-4" />
               </Button>
             </>
-          ) : (
-            <div className="hidden items-center gap-2 rounded-full border border-border bg-card/50 px-3 py-1 text-xs text-muted-foreground sm:flex">
-              <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-              Гость · {profile?.rating ?? 1200} ELO
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
     </header>

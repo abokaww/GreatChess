@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ProRouteImport } from './routes/pro'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as GameLocalRouteImport } from './routes/game.local'
 import { Route as GameAiRouteImport } from './routes/game.ai'
 import { Route as GameIdRouteImport } from './routes/game.$id'
+import { Route as GameMultiplayerRoomIdRouteImport } from './routes/game.multiplayer.$roomId'
 
 const ProRoute = ProRouteImport.update({
   id: '/pro',
@@ -30,6 +32,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GameLocalRoute = GameLocalRouteImport.update({
+  id: '/game/local',
+  path: '/game/local',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GameAiRoute = GameAiRouteImport.update({
   id: '/game/ai',
   path: '/game/ai',
@@ -40,6 +47,11 @@ const GameIdRoute = GameIdRouteImport.update({
   path: '/game/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GameMultiplayerRoomIdRoute = GameMultiplayerRoomIdRouteImport.update({
+  id: '/game/multiplayer/$roomId',
+  path: '/game/multiplayer/$roomId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +59,8 @@ export interface FileRoutesByFullPath {
   '/pro': typeof ProRoute
   '/game/$id': typeof GameIdRoute
   '/game/ai': typeof GameAiRoute
+  '/game/local': typeof GameLocalRoute
+  '/game/multiplayer/$roomId': typeof GameMultiplayerRoomIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +68,8 @@ export interface FileRoutesByTo {
   '/pro': typeof ProRoute
   '/game/$id': typeof GameIdRoute
   '/game/ai': typeof GameAiRoute
+  '/game/local': typeof GameLocalRoute
+  '/game/multiplayer/$roomId': typeof GameMultiplayerRoomIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,13 +78,37 @@ export interface FileRoutesById {
   '/pro': typeof ProRoute
   '/game/$id': typeof GameIdRoute
   '/game/ai': typeof GameAiRoute
+  '/game/local': typeof GameLocalRoute
+  '/game/multiplayer/$roomId': typeof GameMultiplayerRoomIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/leaderboard' | '/pro' | '/game/$id' | '/game/ai'
+  fullPaths:
+    | '/'
+    | '/leaderboard'
+    | '/pro'
+    | '/game/$id'
+    | '/game/ai'
+    | '/game/local'
+    | '/game/multiplayer/$roomId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/leaderboard' | '/pro' | '/game/$id' | '/game/ai'
-  id: '__root__' | '/' | '/leaderboard' | '/pro' | '/game/$id' | '/game/ai'
+  to:
+    | '/'
+    | '/leaderboard'
+    | '/pro'
+    | '/game/$id'
+    | '/game/ai'
+    | '/game/local'
+    | '/game/multiplayer/$roomId'
+  id:
+    | '__root__'
+    | '/'
+    | '/leaderboard'
+    | '/pro'
+    | '/game/$id'
+    | '/game/ai'
+    | '/game/local'
+    | '/game/multiplayer/$roomId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -77,6 +117,8 @@ export interface RootRouteChildren {
   ProRoute: typeof ProRoute
   GameIdRoute: typeof GameIdRoute
   GameAiRoute: typeof GameAiRoute
+  GameLocalRoute: typeof GameLocalRoute
+  GameMultiplayerRoomIdRoute: typeof GameMultiplayerRoomIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -102,6 +144,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/game/local': {
+      id: '/game/local'
+      path: '/game/local'
+      fullPath: '/game/local'
+      preLoaderRoute: typeof GameLocalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/game/ai': {
       id: '/game/ai'
       path: '/game/ai'
@@ -116,6 +165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GameIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/game/multiplayer/$roomId': {
+      id: '/game/multiplayer/$roomId'
+      path: '/game/multiplayer/$roomId'
+      fullPath: '/game/multiplayer/$roomId'
+      preLoaderRoute: typeof GameMultiplayerRoomIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -125,6 +181,8 @@ const rootRouteChildren: RootRouteChildren = {
   ProRoute: ProRoute,
   GameIdRoute: GameIdRoute,
   GameAiRoute: GameAiRoute,
+  GameLocalRoute: GameLocalRoute,
+  GameMultiplayerRoomIdRoute: GameMultiplayerRoomIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

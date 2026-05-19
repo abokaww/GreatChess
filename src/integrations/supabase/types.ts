@@ -16,37 +16,55 @@ export type Database = {
     Tables: {
       profiles: {
         Row: {
+          ai_requests_count: number
           avatar_url: string | null
           city: string | null
           coach_last_used: string | null
           created_at: string
           email: string | null
+          elo: number
           full_name: string | null
           id: string
           is_pro: boolean
-          rating: number
+          last_ai_request_date: string | null
+          losses: number
+          rating: number | null
+          username: string | null
+          wins: number
         }
         Insert: {
+          ai_requests_count?: number
           avatar_url?: string | null
           city?: string | null
           coach_last_used?: string | null
           created_at?: string
           email?: string | null
+          elo?: number
           full_name?: string | null
           id: string
           is_pro?: boolean
-          rating?: number
+          last_ai_request_date?: string | null
+          losses?: number
+          rating?: number | null
+          username?: string | null
+          wins?: number
         }
         Update: {
+          ai_requests_count?: number
           avatar_url?: string | null
           city?: string | null
           coach_last_used?: string | null
           created_at?: string
           email?: string | null
+          elo?: number
           full_name?: string | null
           id?: string
           is_pro?: boolean
-          rating?: number
+          last_ai_request_date?: string | null
+          losses?: number
+          rating?: number | null
+          username?: string | null
+          wins?: number
         }
         Relationships: []
       }
