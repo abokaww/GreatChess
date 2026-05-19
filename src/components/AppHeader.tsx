@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 function displayNameFromUser(user: User): string {
   const meta = user.user_metadata ?? {};
   const name =
-    (typeof meta.full_name === "string" && meta.full_name) ||
     (typeof meta.name === "string" && meta.name) ||
     null;
   return name ?? user.email ?? "Игрок";
@@ -35,7 +34,7 @@ export function AppHeader() {
     navigate({ to: "/" });
   };
 
-  const displayName = authUser ? displayNameFromUser(authUser) : "Гость";
+  const displayName = profile?.username ?? (authUser ? displayNameFromUser(authUser) : "Гость");
   const elo = profile?.elo ?? 1000;
 
   return (
@@ -74,13 +73,9 @@ export function AppHeader() {
           </div>
           {authUser ? (
             <>
-              {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="" className="h-9 w-9 rounded-full border border-border" />
-              ) : (
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-sm font-semibold">
-                  {displayName.charAt(0).toUpperCase()}
-                </div>
-              )}
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-sm font-semibold">
+                {displayName.charAt(0).toUpperCase()}
+              </div>
               <Button variant="ghost" size="icon" onClick={signOut} title="Выйти">
                 <LogOut className="h-4 w-4" />
               </Button>

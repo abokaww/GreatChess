@@ -6,57 +6,40 @@ export const DEFAULT_ELO = 1000;
 
 export type Profile = {
   id: string;
-  email: string | null;
-  full_name: string | null;
   username: string | null;
-  avatar_url: string | null;
-  city: string | null;
   elo: number;
-  wins: number;
-  losses: number;
   ai_requests_count: number;
   last_ai_request_date: string | null;
-  coach_last_used: string | null;
-  is_pro: boolean;
   is_guest?: boolean;
 };
 
-const GUEST_KEY = "gc_guest_profile";
+const GUEST_PROFILE: Profile = {
+  id: "guest",
+  username: null,
+  elo: DEFAULT_ELO,
+  ai_requests_count: 0,
+  last_ai_request_date: null,
+  is_guest: true,
+};
 
-function getGuestProfile(): Profile {
+function createEmptyProfile(id: string): Profile {
   return {
-    id: "guest",
-    email: null,
-    full_name: null,
+    id,
     username: null,
-    avatar_url: null,
-    city: null,
     elo: DEFAULT_ELO,
-    wins: 0,
-    losses: 0,
     ai_requests_count: 0,
     last_ai_request_date: null,
-    coach_last_used: null,
-    is_pro: false,
-    is_guest: true,
+    is_guest: false,
   };
 }
 
 function normalizeProfile(row: Record<string, unknown>): Profile {
   return {
     id: String(row.id),
-    email: (row.email as string | null) ?? null,
-    full_name: (row.full_name as string | null) ?? null,
     username: (row.username as string | null) ?? null,
-    avatar_url: (row.avatar_url as string | null) ?? null,
-    city: (row.city as string | null) ?? null,
     elo: typeof row.elo === "number" ? row.elo : DEFAULT_ELO,
-    wins: typeof row.wins === "number" ? row.wins : 0,
-    losses: typeof row.losses === "number" ? row.losses : 0,
     ai_requests_count: typeof row.ai_requests_count === "number" ? row.ai_requests_count : 0,
     last_ai_request_date: (row.last_ai_request_date as string | null) ?? null,
-    coach_last_used: (row.coach_last_used as string | null) ?? null,
-    is_pro: Boolean(row.is_pro),
     is_guest: false,
   };
 }
@@ -74,7 +57,7 @@ export function useAuth() {
       if (s?.user) {
         setTimeout(() => loadProfile(s.user.id), 0);
       } else {
-        setProfile(getGuestProfile());
+        setProfile(GUEST_PROFILE);
       }
     });
     supabase.auth
@@ -83,20 +66,37 @@ export function useAuth() {
         setSession(data.session);
         setUser(data.session?.user ?? null);
         if (data.session?.user) loadProfile(data.session.user.id);
-        else setProfile(getGuestProfile());
+        else setProfile(GUEST_PROFILE);
         setLoading(false);
       })
       .catch(() => {
-        setProfile(getGuestProfile());
+        setProfile(GUEST_PROFILE);
         setLoading(false);
       });
     return () => subscription.unsubscribe();
   }, []);
 
   async function loadProfile(id: string) {
-    const { data } = await supabase.from("profiles").select("*").eq("id", id).maybeSingle();
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, username, elo, ai_requests_count, last_ai_request_date")
+      .eq("id", id)
+      .maybeSingle();
     if (data) setProfile(normalizeProfile(data as Record<string, unknown>));
-    else setProfile(getGuestProfile());
+    else {
+      // ensure there's a profiles row for this user so nicknames persist across logins
+      try {
+        const { data: inserted } = await supabase
+          .from("profiles")
+          .insert({ id, username: null, elo: DEFAULT_ELO, ai_requests_count: 0, last_ai_request_date: null })
+          .select()
+          .maybeSingle();
+        if (inserted) setProfile(normalizeProfile(inserted as Record<string, unknown>));
+        else setProfile(createEmptyProfile(id));
+      } catch {
+        setProfile(createEmptyProfile(id));
+      }
+    }
   }
 
   async function reloadProfile() {

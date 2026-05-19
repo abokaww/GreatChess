@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Trophy, Crown, Medal, Award, ArrowLeft, Loader2 } from "lucide-react";
+import { Trophy, Medal, Award, ArrowLeft, Loader2 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -9,11 +9,8 @@ export const Route = createFileRoute("/leaderboard")({
 });
 
 type LeaderRow = {
-  id: string;
-  full_name: string | null;
+  username: string;
   elo: number;
-  city: string | null;
-  is_pro: boolean;
 };
 
 function PlaceIcon({ i }: { i: number }) {
@@ -35,7 +32,9 @@ function Leaderboard() {
       setError(null);
       const { data, error: qErr } = await supabase
         .from("profiles")
-        .select("id, full_name, elo, city, is_pro")
+        .select("username, elo")
+        .not("username", "is", null)
+        .neq("username", "")
         .order("elo", { ascending: false })
         .limit(100);
 
@@ -44,7 +43,12 @@ function Leaderboard() {
         setError(qErr.message);
         setRows([]);
       } else {
-        setRows((data ?? []) as LeaderRow[]);
+        setRows(
+          (data ?? []).map((row: any) => ({
+            username: String(row.username ?? "Игрок"),
+            elo: typeof row.elo === "number" ? row.elo : 1000,
+          })) as LeaderRow[],
+        );
       }
       setLoading(false);
     })();
@@ -96,7 +100,7 @@ function Leaderboard() {
               <ul className="divide-y divide-border/50">
                 {rows.map((r, i) => (
                   <li
-                    key={r.id}
+                    key={`${r.username}-${i}`}
                     className="grid grid-cols-[60px_1fr_120px_100px] items-center gap-2 px-5 py-4 transition hover:bg-secondary/30"
                   >
                     <div className="flex items-center justify-center">
@@ -104,18 +108,13 @@ function Leaderboard() {
                     </div>
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-primary text-sm font-semibold text-primary-foreground">
-                        {(r.full_name ?? "?").charAt(0).toUpperCase()}
+                        {r.username.charAt(0).toUpperCase()}
                       </div>
                       <div className="flex min-w-0 items-center gap-2 truncate font-medium">
-                        {r.full_name ?? "Игрок"}
-                        {r.is_pro && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] text-primary">
-                            <Crown className="h-2.5 w-2.5" /> PRO
-                          </span>
-                        )}
+                        {r.username}
                       </div>
                     </div>
-                    <div className="text-sm text-muted-foreground">{r.city?.trim() || "—"}</div>
+                    <div className="text-sm text-muted-foreground">—</div>
                     <div className="text-gradient text-right text-xl font-bold tabular-nums">{r.elo}</div>
                   </li>
                 ))}

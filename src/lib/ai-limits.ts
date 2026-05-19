@@ -21,10 +21,6 @@ export function checkAiCoachAccess(
   if (!isLoggedIn || profile?.is_guest) {
     return { allowed: false, reason: "guest" };
   }
-  if (profile.is_pro) {
-    return { allowed: true };
-  }
-
   const today = todayDateString();
   const lastDate = profile.last_ai_request_date?.slice(0, 10) ?? null;
   const count = lastDate === today ? (profile.ai_requests_count ?? 0) : 0;
@@ -58,7 +54,7 @@ export async function incrementAiRequestCount(userId: string): Promise<void> {
 }
 
 export const AI_COACH_MESSAGES = {
-  guest: "Для использования ИИ-Коуча необходимо войти в аккаунт через Google!",
+  guest: "Для использования ИИ-Коуча необходимо войти в аккаунт!",
   limit:
     "Вы исчерпали лимит бесплатных разборов (2 в сутки). Для безлимитного доступа оформите подписку GreatChess Plus!",
 } as const;

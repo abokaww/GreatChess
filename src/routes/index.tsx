@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bot, Users, Trophy, Sparkles, ArrowRight, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -14,9 +14,14 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const { user, loading } = useAuth();
+  const { user, loading, reloadProfile } = useAuth();
   const navigate = useNavigate();
   const [friendOpen, setFriendOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    void reloadProfile();
+  }, [user, reloadProfile]);
 
   const signInGoogle = async () => {
     const res = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });

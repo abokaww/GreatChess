@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth, DEFAULT_ELO } from "@/hooks/use-auth";
@@ -45,7 +44,7 @@ export function ProfileCard() {
       <div className="glass shadow-elegant rounded-3xl p-8">
         <h2 className="text-xl font-semibold">Выберите никнейм</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Никнейм будет отображаться в профиле и рейтинге. От 3 до 20 символов: буквы, цифры, _.
+          Никнейм будет отображаться в рейтинге и профиле. От 3 до 20 символов: буквы, цифры и _. Это привязано к вашей учётной записи.
         </p>
         <form
           className="mt-6 flex flex-col gap-3 sm:flex-row"
@@ -71,16 +70,34 @@ export function ProfileCard() {
               return;
             }
 
-            const { error: updErr } = await supabase
+            const { data: updated, error: updErr } = await supabase
               .from("profiles")
               .update({ username: value })
-              .eq("id", user.id);
+              .eq("id", user.id)
+              .select();
 
-            setSaving(false);
             if (updErr) {
+              setSaving(false);
               setError(updErr.message);
               return;
             }
+
+            if (!updated?.length) {
+              const { error: insertErr } = await supabase.from("profiles").insert({
+                id: user.id,
+                username: value,
+                elo: DEFAULT_ELO,
+                ai_requests_count: 0,
+                last_ai_request_date: null,
+              });
+              if (insertErr) {
+                setSaving(false);
+                setError(insertErr.message);
+                return;
+              }
+            }
+
+            setSaving(false);
             toast.success("Никнейм сохранён!");
             await reloadProfile();
           }}
@@ -108,13 +125,9 @@ export function ProfileCard() {
   return (
     <div className="glass shadow-elegant flex flex-col items-center gap-6 rounded-3xl p-8 md:flex-row md:items-center md:justify-between">
       <div className="flex items-center gap-4">
-        {profile?.avatar_url ? (
-          <img src={profile.avatar_url} alt="" className="h-16 w-16 rounded-full border border-border" />
-        ) : (
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-primary text-2xl font-bold text-primary-foreground">
-            {displayName.charAt(0).toUpperCase()}
-          </div>
-        )}
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-primary text-2xl font-bold text-primary-foreground">
+          {displayName.charAt(0).toUpperCase()}
+        </div>
         <div>
           <div className="text-xs uppercase tracking-wider text-muted-foreground">Добро пожаловать</div>
           <div className="text-2xl font-semibold">{displayName}</div>
@@ -123,11 +136,6 @@ export function ProfileCard() {
       <div className="text-center md:text-right">
         <div className="text-xs uppercase tracking-wider text-muted-foreground">Рейтинг</div>
         <div className="text-gradient text-5xl font-bold">{elo}</div>
-        {profile?.is_pro && (
-          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-0.5 text-xs text-primary">
-            <Crown className="h-3 w-3" /> PRO
-          </div>
-        )}
       </div>
     </div>
   );
