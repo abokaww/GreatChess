@@ -1,0 +1,164 @@
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { Bot, Users, Trophy, Sparkles, ArrowRight, Crown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
+import { lovable } from "@/integrations/auth/index";
+import { AppHeader } from "@/components/AppHeader";
+import { toast } from "sonner";
+
+export const Route = createFileRoute("/")({
+  component: Index,
+});
+
+function Index() {
+  const { user, profile, loading } = useAuth();
+  const navigate = useNavigate();
+
+  const signInGoogle = async () => {
+    const res = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
+    if (res.error) toast.error("Не удалось войти. Попробуйте снова.");
+  };
+
+  const createRoom = () => {
+    const id = Math.random().toString(36).slice(2, 8);
+    navigate({ to: "/game/$id", params: { id } });
+  };
+
+  return (
+    <div className="min-h-screen">
+      <AppHeader />
+      <main className="container mx-auto px-4 py-12 md:py-20">
+        <section className="mx-auto max-w-3xl text-center">
+            <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/50 px-4 py-1.5 text-xs text-muted-foreground backdrop-blur">
+              <Sparkles className="h-3 w-3 text-primary" /> Создано для инкубатора nFactorial
+            </div>
+            <h1 className="text-5xl font-bold tracking-tight md:text-7xl">
+              <span className="text-gradient">GreatChess</span>
+              <span className="mt-2 block text-3xl text-muted-foreground md:text-4xl">
+                Шахматы нового поколения
+              </span>
+            </h1>
+            <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
+              Играй, анализируй партии с ИИ-коучем и прокачивай свой рейтинг.
+            </p>
+            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <Button
+                size="lg"
+                onClick={() => navigate({ to: "/game/ai" })}
+                className="bg-gradient-primary text-primary-foreground shadow-glow hover:opacity-90"
+              >
+                <Bot className="mr-2 h-4 w-4" /> Начать партию
+              </Button>
+              {!user && (
+                <Button variant="outline" size="lg" onClick={signInGoogle}>
+                  <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                  Войти через Google
+                </Button>
+              )}
+            </div>
+            <div className="mt-20 grid gap-4 md:grid-cols-3">
+              {[
+                { icon: Bot, title: "ИИ-соперник", desc: "Мгновенные партии против умного бота" },
+                { icon: Sparkles, title: "ИИ-Коуч", desc: "Персональный разбор каждой партии" },
+                { icon: Trophy, title: "Рейтинг РК", desc: "Соревнуйся с игроками своего города" },
+              ].map((f, i) => (
+                <div key={i} className="glass rounded-2xl p-6 text-left transition hover:border-primary/40">
+                  <f.icon className="mb-3 h-6 w-6 text-primary" />
+                  <h3 className="font-semibold">{f.title}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{f.desc}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+        <section className="mx-auto mt-16 max-w-5xl">
+            <div className="glass shadow-elegant flex flex-col items-center gap-6 rounded-3xl p-8 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-4">
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="" className="h-16 w-16 rounded-full border border-border" />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-primary text-2xl font-bold text-primary-foreground">
+                    {(profile?.full_name ?? "?").charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Добро пожаловать</div>
+                  <div className="text-2xl font-semibold">{profile?.full_name ?? "Игрок"}</div>
+                  <div className="text-sm text-muted-foreground">{profile?.city ?? "—"}</div>
+                </div>
+              </div>
+              <div className="text-center md:text-right">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground">Рейтинг</div>
+                <div className="text-gradient text-5xl font-bold">{profile?.rating ?? 1200}</div>
+                {profile?.is_pro && (
+                  <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-0.5 text-xs text-primary">
+                    <Crown className="h-3 w-3" /> PRO
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
+              <DashCard
+                icon={Bot}
+                title="Играть с ИИ"
+                desc="Мгновенная партия против бота"
+                onClick={() => navigate({ to: "/game/ai" })}
+                accent
+              />
+              <DashCard
+                icon={Users}
+                title="Играть с другом"
+                desc="Создай комнату и поделись ссылкой"
+                onClick={createRoom}
+              />
+              <DashCard
+                icon={Trophy}
+                title="Рейтинг игроков"
+                desc="Лидерборд по городам Казахстана"
+                onClick={() => navigate({ to: "/leaderboard" })}
+              />
+            </div>
+
+            <Link to="/pro" className="mt-8 block">
+              <div className="glass shadow-elegant flex items-center justify-between rounded-2xl border-primary/30 p-6 transition hover:border-primary">
+                <div className="flex items-center gap-3">
+                  <Crown className="h-6 w-6 text-primary" />
+                  <div>
+                    <div className="font-semibold">Безлимитный ИИ-Коуч в PRO</div>
+                    <div className="text-sm text-muted-foreground">Анализ каждой партии 24/7 + кастомные доски</div>
+                  </div>
+                </div>
+                <ArrowRight className="h-5 w-5 text-muted-foreground" />
+              </div>
+            </Link>
+          </section>
+        {loading && null}
+      </main>
+    </div>
+  );
+}
+
+function DashCard({ icon: Icon, title, desc, onClick, accent }: {
+  icon: typeof Bot;
+  title: string;
+  desc: string;
+  onClick: () => void;
+  accent?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`glass group text-left rounded-2xl p-6 transition hover:-translate-y-1 hover:border-primary/50 ${accent ? "shadow-glow" : ""}`}
+    >
+      <div className={`mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl ${accent ? "bg-gradient-primary" : "bg-secondary"}`}>
+        <Icon className={`h-5 w-5 ${accent ? "text-primary-foreground" : "text-foreground"}`} />
+      </div>
+      <div className="text-lg font-semibold">{title}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{desc}</div>
+      <div className="mt-4 inline-flex items-center text-sm text-primary opacity-0 transition group-hover:opacity-100">
+        Начать <ArrowRight className="ml-1 h-3 w-3" />
+      </div>
+    </button>
+  );
+}
