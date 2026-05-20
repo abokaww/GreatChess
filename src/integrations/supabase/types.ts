@@ -21,6 +21,7 @@ export type Database = {
           name: string
           host_id: string
           guest_id: string | null
+          host_color: string
           status: string
           game_state: Json
           current_turn: string | null
@@ -33,6 +34,7 @@ export type Database = {
           name: string
           host_id: string
           guest_id?: string | null
+          host_color: string
           status?: string
           game_state?: Json
           current_turn?: string | null
@@ -45,6 +47,7 @@ export type Database = {
           name?: string
           host_id?: string
           guest_id?: string | null
+          host_color?: string
           status?: string
           game_state?: Json
           current_turn?: string | null

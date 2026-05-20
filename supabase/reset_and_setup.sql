@@ -5,20 +5,22 @@
 drop table if exists public.saved_games cascade;
 drop table if exists public.rooms cascade;
 
+generate extension if not exists pgcrypto;
+
 -- Комнаты: код + название, только зарегистрированные (Google)
 create table public.rooms (
-  id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  id text primary key,
+  code text not null unique check (char_length(code) = 6),
   name text not null,
-  host_user_id uuid not null references auth.users (id) on delete cascade,
-  guest_user_id uuid references auth.users (id) on delete set null,
+  host_id uuid not null references auth.users (id) on delete cascade,
+  guest_id uuid references auth.users (id) on delete set null,
   host_color text not null check (host_color in ('white', 'black')),
-  fen text not null default 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-  pgn text not null default '',
-  status text not null default 'waiting' check (status in ('waiting', 'active', 'finished')),
+  status text not null default 'waiting' check (status in ('waiting','playing','finished')),
+  game_state jsonb not null default '{}'::jsonb,
+  current_turn text check (current_turn in ('white','black')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint rooms_not_self_guest check (guest_user_id is null or guest_user_id <> host_user_id)
+  constraint rooms_not_self_guest check (guest_id is null or guest_id <> host_id)
 );
 
 create index rooms_code_idx on public.rooms (code);

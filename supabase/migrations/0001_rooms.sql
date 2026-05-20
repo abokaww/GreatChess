@@ -7,6 +7,7 @@ create table public.rooms (
   name text not null,
   host_id uuid not null references auth.users(id) on delete cascade,
   guest_id uuid,
+  host_color text not null check (host_color in ('white','black')),
   status text not null default 'waiting' check (status in ('waiting','playing','finished')),
   game_state jsonb not null default '{}'::jsonb,
   current_turn text check (current_turn in ('white','black')),
