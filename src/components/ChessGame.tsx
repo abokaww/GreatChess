@@ -59,6 +59,7 @@ export function ChessGame({
   const [boardThemeKey, setBoardThemeKey] = useState<string>("default");
   const [pieceThemeKey, setPieceThemeKey] = useState<string>("default");
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
+  const [boardWidth, setBoardWidth] = useState<number>(640);
   const [gameId, setGameId] = useState<string>(() => {
     if (typeof window !== "undefined" && typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
@@ -73,6 +74,16 @@ export function ChessGame({
   const [replayIndex, setReplayIndex] = useState<number>(0);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    const updateSize = () => {
+      const width = Math.min(Math.max(window.innerWidth - 48, 320), 640);
+      setBoardWidth(width);
+    };
+    updateSize();
+    window.addEventListener("resize", updateSize);
+    return () => window.removeEventListener("resize", updateSize);
+  }, []);
 
   const syncMoveHistory = useCallback(() => {
     setMoveHistory(gameRef.current.history());
@@ -359,6 +370,11 @@ export function ChessGame({
 
       const piece = g.get(square);
       const isOwnPiece = piece?.color === g.turn();
+      if (selectedSquare === square) {
+        clearSelection();
+        return;
+      }
+
       if (selectedSquare && legalDestinations.includes(square)) {
         const move = g.move({ from: selectedSquare, to: square, promotion: "q" });
         if (!move) {
@@ -469,7 +485,7 @@ export function ChessGame({
 
   const copyInvite = () => {
     if (!roomId) return;
-    const url = `${window.location.origin}/game/multiplayer/${roomId}`;
+    const url = new URL(`/game/multiplayer/${roomId}`, window.location.origin).toString();
     navigator.clipboard.writeText(url);
     toast.success("Ссылка скопирована!");
   };
@@ -488,12 +504,15 @@ export function ChessGame({
     if (selectedSquare) {
       styles[selectedSquare] = {
         backgroundColor: "rgba(59, 130, 246, 0.24)",
+        boxShadow: "inset 0 0 0 2px rgba(59, 130, 246, 0.7)",
       };
     }
     legalDestinations.forEach((square) => {
       styles[square] = {
-        backgroundColor: "rgba(59, 130, 246, 0.22)",
-        boxShadow: "inset 0 0 0 1px rgba(59, 130, 246, 0.8)",
+        backgroundColor: "rgba(59, 130, 246, 0.08)",
+        backgroundImage: "radial-gradient(circle at center, rgba(59, 130, 246, 0.75) 15%, rgba(59, 130, 246, 0.0) 18%)",
+        borderRadius: "50%",
+        boxShadow: "inset 0 0 0 1px rgba(59, 130, 246, 0.35)",
       };
     });
     return styles;
@@ -510,9 +529,10 @@ export function ChessGame({
       darkSquareStyle: currentBoardTheme.dark,
       lightSquareStyle: currentBoardTheme.light,
       boardStyle: currentBoardTheme.boardStyle,
+      boardWidth,
       id: `great-chess-${mode}-${roomId ?? "solo"}`,
     }),
-    [fen, orientation, mode, roomId, customSquareStyles, onPieceDrop, onSquareClick, currentBoardTheme],
+    [fen, orientation, mode, roomId, customSquareStyles, onPieceDrop, onSquareClick, currentBoardTheme, boardWidth],
   );
 
   const modeLabel =
@@ -560,7 +580,7 @@ export function ChessGame({
             <div className="flex gap-2">
               {mode === "multiplayer" && roomId && (
                 <Button variant="ghost" size="sm" onClick={copyInvite}>
-                  <Copy className="mr-1 h-3 w-3" /> Пригласить
+                  <Copy className="mr-1 h-3 w-3" /> Пригласить друга
                 </Button>
               )}
               <Button variant="ghost" size="sm" onClick={resign} disabled={!!gameOver}>

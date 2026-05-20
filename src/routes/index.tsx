@@ -7,7 +7,7 @@ import { lovable } from "@/integrations/auth/index";
 import { AppHeader } from "@/components/AppHeader";
 import { ProfileCard } from "@/components/ProfileCard";
 import { FriendPlayDialog } from "@/components/FriendPlayDialog";
-import { loadSavedGames, StoredGame } from "@/lib/game-storage";
+import { loadSavedGames, removeSavedGame, StoredGame } from "@/lib/game-storage";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -28,6 +28,26 @@ function Index() {
   useEffect(() => {
     setOngoingGames(loadSavedGames().filter((game) => !game.finished));
   }, []);
+
+  const hasOngoingGame = ongoingGames.length > 0;
+  const latestOngoingGame = [...ongoingGames].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+
+  const handleStartNewGame = (action: () => void) => {
+    if (hasOngoingGame) {
+      toast.error(
+        "У вас есть незавершённая партия. Сначала завершите или продолжите её, потом создавайте новую.",
+      );
+      return;
+    }
+    action();
+  };
+
+  const finishCurrentGame = () => {
+    if (!latestOngoingGame) return;
+    removeSavedGame(latestOngoingGame.id);
+    setOngoingGames((current) => current.filter((game) => game.id !== latestOngoingGame.id));
+    toast.success("Текущая партия отмечена как завершённая.");
+  };
 
   const signInGoogle = async () => {
     const res = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
@@ -51,7 +71,7 @@ function Index() {
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button
               size="lg"
-              onClick={() => navigate({ to: "/game/ai" })}
+              onClick={() => handleStartNewGame(() => navigate({ to: "/game/ai" }))}
               className="bg-gradient-primary text-primary-foreground shadow-glow hover:opacity-90"
             >
               <Bot className="mr-2 h-4 w-4" /> Начать партию
@@ -93,6 +113,31 @@ function Index() {
               </div>
             ))}
           </div>
+
+          {hasOngoingGame && latestOngoingGame && (
+            <div className="glass mt-10 rounded-3xl border border-orange-200 bg-orange-50/70 p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-orange-700">Внимание</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-orange-900">У вас есть незавершённая партия</h2>
+                  <p className="mt-2 max-w-2xl text-sm text-orange-800">
+                    Чтобы начать новую игру, сначала продолжите или завершите текущую партию. Это поможет избежать путаницы между ИИ, локальными и онлайн встречами.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button size="sm" onClick={() => navigate({ to: `/match/${latestOngoingGame.id}` })}>
+                    Продолжить
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={finishCurrentGame}>
+                    Завершить текущую
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => navigate({ to: "/matches" })}>
+                    Все матчи
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="mx-auto mt-16 max-w-5xl">
@@ -110,7 +155,7 @@ function Index() {
               icon={Users}
               title="Играть с другом"
               desc="Локально или онлайн по ссылке"
-              onClick={() => setFriendOpen(true)}
+              onClick={() => handleStartNewGame(() => setFriendOpen(true))}
             />
             <DashCard
               icon={Sparkles}

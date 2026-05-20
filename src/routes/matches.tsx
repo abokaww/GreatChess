@@ -15,7 +15,7 @@ function Matches() {
   const [games, setGames] = useState<StoredGame[]>([]);
 
   useEffect(() => {
-    setGames(loadSavedGames());
+    setGames(loadSavedGames().sort((a, b) => b.updatedAt - a.updatedAt));
   }, []);
 
   const handleDelete = (id: string) => {
