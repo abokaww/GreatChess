@@ -41,6 +41,7 @@ alter table public.saved_games enable row level security;
 create policy "rooms_select" on public.rooms for select using (true);
 create policy "rooms_insert" on public.rooms for insert with check (true);
 create policy "rooms_update" on public.rooms for update using (true);
+create policy "rooms_delete" on public.rooms for delete using (true);
 
 -- Saved games: only owner
 create policy "saved_games_select_own" on public.saved_games

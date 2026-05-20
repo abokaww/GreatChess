@@ -39,10 +39,7 @@ function rowToStored(row: DbGameRow): StoredGame {
   };
 }
 
-function storedToRow(game: StoredGame, userId: string): Omit<DbGameRow, "user_id" | "updated_at"> & {
-  user_id: string;
-  updated_at: string;
-} {
+function storedToRow(game: StoredGame, userId: string) {
   return {
     id: game.id,
     user_id: userId,
@@ -64,17 +61,6 @@ function isUuid(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 }
 
-function mergeGames(local: StoredGame[], remote: StoredGame[]): StoredGame[] {
-  const merged = new Map<string, StoredGame>();
-  for (const item of [...local, ...remote]) {
-    const existing = merged.get(item.id);
-    if (!existing || item.updatedAt > existing.updatedAt) {
-      merged.set(item.id, item);
-    }
-  }
-  return Array.from(merged.values());
-}
-
 export async function fetchSavedGamesForUser(userId: string): Promise<StoredGame[]> {
   const { data, error } = await supabase
     .from("saved_games")
@@ -82,28 +68,45 @@ export async function fetchSavedGamesForUser(userId: string): Promise<StoredGame
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
 
-  if (error || !data) return loadLocalGames();
-
-  const remote = (data as DbGameRow[]).map(rowToStored);
-  const local = loadLocalGames();
-  const merged = mergeGames(local, remote);
-
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem("gc:ongoing-games", JSON.stringify(merged));
+  if (error || !data) {
+    return loadLocalGames(userId).sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  return merged.sort((a, b) => b.updatedAt - a.updatedAt);
+  const remote = (data as DbGameRow[]).map(rowToStored);
+  const local = loadLocalGames(userId);
+
+  const merged = new Map<string, StoredGame>();
+  for (const item of remote) {
+    merged.set(item.id, item);
+  }
+  for (const item of local) {
+    const existing = merged.get(item.id);
+    if (!existing || item.updatedAt > existing.updatedAt) {
+      merged.set(item.id, item);
+    }
+  }
+
+  const result = Array.from(merged.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(
+      `gc:ongoing-games:${userId}`,
+      JSON.stringify(result),
+    );
+  }
+
+  return result;
 }
 
 export async function persistGame(game: StoredGame, userId: string | null | undefined): Promise<void> {
   if (!userId || userId.startsWith("guest")) {
-    saveLocalGame(game);
+    saveLocalGame(game, null);
     return;
   }
 
   const id = isUuid(game.id) ? game.id : crypto.randomUUID();
   const normalized = { ...game, id };
-  saveLocalGame(normalized);
+  saveLocalGame(normalized, userId);
   const payload = storedToRow(normalized, userId);
 
   if (!game.finished) {
@@ -127,7 +130,7 @@ export async function persistGame(game: StoredGame, userId: string | null | unde
 }
 
 export async function deleteGameForUser(id: string, userId: string | null | undefined): Promise<void> {
-  removeLocalGame(id);
+  removeSavedGame(id, userId);
   if (!userId || userId.startsWith("guest")) return;
   await supabase.from("saved_games").delete().eq("id", id).eq("user_id", userId);
 }
@@ -142,13 +145,19 @@ export async function getGameById(id: string, userId: string | null | undefined)
       .maybeSingle();
     if (data) return rowToStored(data as DbGameRow);
   }
-  return loadLocalGames().find((g) => g.id === id) ?? null;
+  return loadLocalGames(userId).find((g) => g.id === id) ?? null;
 }
 
+/** Перенос гостевых сохранений в аккаунт при первом входе (только guest → user). */
 export async function syncLocalGamesToCloud(userId: string): Promise<void> {
-  const local = loadLocalGames();
-  for (const game of local) {
+  const guestGames = loadLocalGames(null);
+  const userGames = loadLocalGames(userId);
+  const toUpload = guestGames.length ? guestGames : userGames;
+  for (const game of toUpload) {
     await persistGame(game, userId);
+  }
+  if (guestGames.length && typeof window !== "undefined") {
+    window.localStorage.removeItem("gc:ongoing-games:guest");
   }
 }
 
@@ -156,9 +165,10 @@ export async function loadLatestOngoingGame(
   mode: StoredGame["mode"],
   userId: string | null | undefined,
 ): Promise<StoredGame | null> {
-  const games = userId && !userId.startsWith("guest")
-    ? await fetchSavedGamesForUser(userId)
-    : loadLocalGames();
+  const games =
+    userId && !userId.startsWith("guest")
+      ? await fetchSavedGamesForUser(userId)
+      : loadLocalGames(null);
   const ongoing = games.filter((g) => g.mode === mode && !g.finished);
   if (!ongoing.length) return null;
   return ongoing.sort((a, b) => b.updatedAt - a.updatedAt)[0];

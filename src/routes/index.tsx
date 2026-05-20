@@ -36,7 +36,7 @@ function Index() {
     async function loadOngoing() {
       const games = user?.id
         ? await fetchSavedGamesForUser(user.id)
-        : loadSavedGames();
+        : loadSavedGames(null);
       if (!cancelled) {
         setOngoingGames(games.filter((game) => !game.finished));
       }

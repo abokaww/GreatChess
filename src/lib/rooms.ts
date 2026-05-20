@@ -15,12 +15,23 @@ export type RoomRecord = {
 
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+function guestColor(hostColor: RoomColor): RoomColor {
+  return hostColor === "white" ? "black" : "white";
+}
+
+function slotPlayerId(room: RoomRecord, color: RoomColor): string | null {
+  return color === "white" ? room.white_player_id : room.black_player_id;
+}
+
 export async function createRoom(
   roomId: string,
   hostId: string,
   hostColor: RoomColor,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { error } = await supabase.from("rooms").upsert({
+  // Полный сброс комнаты, чтобы не остались старые игроки в слотах
+  await supabase.from("rooms").delete().eq("id", roomId);
+
+  const { error } = await supabase.from("rooms").insert({
     id: roomId,
     host_id: hostId,
     host_color: hostColor,
@@ -30,6 +41,7 @@ export async function createRoom(
     pgn: "",
     status: "waiting",
   });
+
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
@@ -45,7 +57,7 @@ export async function joinRoom(
   playerId: string,
 ): Promise<
   | { ok: true; color: RoomColor; whiteUserId: string | null; blackUserId: string | null; room: RoomRecord }
-  | { ok: false; reason: "not_found" | "full" }
+  | { ok: false; reason: "not_found" | "full" | "error"; message?: string }
 > {
   const room = await getRoom(roomId);
   if (!room) return { ok: false, reason: "not_found" };
@@ -60,47 +72,51 @@ export async function joinRoom(
     };
   }
 
-  const guestColor: RoomColor = room.host_color === "white" ? "black" : "white";
+  const myColor = guestColor(room.host_color);
+  const mySlot = slotPlayerId(room, myColor);
 
-  if (guestColor === "white") {
-    if (room.white_player_id && room.white_player_id !== playerId) {
+  if (mySlot && mySlot !== playerId) {
+    return { ok: false, reason: "full" };
+  }
+
+  if (mySlot === playerId) {
+    return {
+      ok: true,
+      color: myColor,
+      whiteUserId: room.white_player_id,
+      blackUserId: room.black_player_id,
+      room,
+    };
+  }
+
+  const patch =
+    myColor === "white"
+      ? { white_player_id: playerId, status: "active" as const }
+      : { black_player_id: playerId, status: "active" as const };
+
+  const { error } = await supabase.from("rooms").update(patch).eq("id", roomId);
+
+  if (error) {
+    const retry = await getRoom(roomId);
+    if (!retry) return { ok: false, reason: "not_found" };
+    const retrySlot = slotPlayerId(retry, myColor);
+    if (retrySlot === playerId) {
+      return {
+        ok: true,
+        color: myColor,
+        whiteUserId: retry.white_player_id,
+        blackUserId: retry.black_player_id,
+        room: retry,
+      };
+    }
+    if (retrySlot && retrySlot !== playerId) {
       return { ok: false, reason: "full" };
     }
-    if (!room.white_player_id) {
-      const { error } = await supabase
-        .from("rooms")
-        .update({ white_player_id: playerId, status: "active" })
-        .eq("id", roomId)
-        .is("white_player_id", null);
-      if (error) return { ok: false, reason: "full" };
-    }
-  } else {
-    if (room.black_player_id && room.black_player_id !== playerId) {
-      return { ok: false, reason: "full" };
-    }
-    if (!room.black_player_id) {
-      const { error } = await supabase
-        .from("rooms")
-        .update({ black_player_id: playerId, status: "active" })
-        .eq("id", roomId)
-        .is("black_player_id", null);
-      if (error) return { ok: false, reason: "full" };
-    }
+    return { ok: false, reason: "error", message: error.message };
   }
 
   const updated = await getRoom(roomId);
   if (!updated) return { ok: false, reason: "not_found" };
-
-  const whiteTaken = updated.white_player_id && updated.white_player_id !== playerId;
-  const blackTaken = updated.black_player_id && updated.black_player_id !== playerId;
-  if (whiteTaken && blackTaken) return { ok: false, reason: "full" };
-
-  const myColor: RoomColor =
-    updated.white_player_id === playerId
-      ? "white"
-      : updated.black_player_id === playerId
-        ? "black"
-        : guestColor;
 
   return {
     ok: true,
@@ -109,6 +125,10 @@ export async function joinRoom(
     blackUserId: updated.black_player_id,
     room: updated,
   };
+}
+
+export function isRoomReady(room: RoomRecord): boolean {
+  return Boolean(room.white_player_id && room.black_player_id);
 }
 
 export async function updateRoomPosition(

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { User } from "@supabase/supabase-js";
-import { Crown, LogOut, Home, Bot, Users, Trophy, Sparkles } from "lucide-react";
+import { Crown, LogOut, Home, Users, Trophy, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -49,7 +49,6 @@ export function AppHeader() {
         <nav className="hidden items-center gap-1 text-sm md:flex">
           {[
             { to: "/", label: "Главная", icon: Home },
-            { to: "/game/ai", label: "Играть с ИИ", icon: Bot },
             { to: "/matches", label: "Матчи", icon: Users },
             { to: "/visual", label: "Визуал", icon: Sparkles },
             { to: "/leaderboard", label: "Рейтинг", icon: Trophy },

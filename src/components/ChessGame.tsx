@@ -15,7 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { applyOnlineEloForCurrentPlayer } from "@/lib/elo-update";
 import { loadVisualPreferences, StoredGame } from "@/lib/game-storage";
 import { deleteGameForUser, loadLatestOngoingGame, persistGame } from "@/lib/game-repository";
-import { finishRoom, updateRoomPosition } from "@/lib/rooms";
+import { finishRoom, getRoom, updateRoomPosition } from "@/lib/rooms";
 import { useAuth } from "@/hooks/use-auth";
 import { getBoardTheme } from "@/lib/visual-themes";
 import type { ParsedResult } from "@/lib/elo";
@@ -38,6 +38,8 @@ type Props = {
   currentUserId?: string | null;
   onEloApplied?: () => void;
   resumeGame?: StoredGame | null;
+  /** В мультиплеере — оба игрока в комнате (можно ходить по очереди). */
+  multiplayerReady?: boolean;
 };
 
 export function ChessGame({
@@ -49,6 +51,7 @@ export function ChessGame({
   currentUserId,
   onEloApplied,
   resumeGame = null,
+  multiplayerReady = true,
 }: Props) {
   const { user } = useAuth();
   const gameRef = useRef(new Chess());
@@ -357,6 +360,22 @@ export function ChessGame({
     };
   }, [mode, roomId, currentUserId, playerColor, applyRemoteFen, broadcastFen, fen]);
 
+  // Резервная синхронизация позиции из БД (если broadcast не дошёл)
+  useEffect(() => {
+    if (mode !== "multiplayer" || !roomId || !multiplayerReady) return;
+
+    const syncFromDb = async () => {
+      const room = await getRoom(roomId);
+      if (!room?.fen || remoteUpdateRef.current) return;
+      if (room.fen !== gameRef.current.fen()) {
+        applyRemoteFen(room.fen);
+      }
+    };
+
+    const interval = setInterval(() => void syncFromDb(), 2500);
+    return () => clearInterval(interval);
+  }, [mode, roomId, multiplayerReady, applyRemoteFen]);
+
   useEffect(() => {
     if (mode === "multiplayer") {
       setBoardOrientation(playerColor);
@@ -408,41 +427,45 @@ export function ChessGame({
     }
   }, [mode, humanColor, aiMove, moveHistory, aiColorConfirmed]);
 
-  const onSquareClick = useCallback(
-    (square: string) => {
-      if (gameOver) return;
+  const canPlayerMove = useCallback(() => {
+    if (gameOver) return false;
+    const g = gameRef.current;
+    const turnColor = g.turn() === "w" ? "white" : "black";
+
+    if (mode === "multiplayer") {
+      if (!multiplayerReady) {
+        toast.error("Дождитесь подключения соперника");
+        return false;
+      }
+      if (turnColor !== playerColor) {
+        toast.error("Сейчас ход соперника");
+        return false;
+      }
+    }
+
+    if (mode === "ai" && turnColor !== humanColor) {
+      toast.error("Сейчас ход соперника");
+      return false;
+    }
+
+    return true;
+  }, [gameOver, mode, multiplayerReady, playerColor, humanColor]);
+
+  const applyMove = useCallback(
+    (from: string, to: string): boolean => {
+      if (!canPlayerMove()) return false;
       const g = gameRef.current;
-      const turnColor = g.turn() === "w" ? "white" : "black";
 
-      if (mode === "multiplayer" && turnColor !== playerColor) {
-        toast.error("Сейчас ход соперника");
-        return;
-      }
-
-      if (mode === "ai" && turnColor !== humanColor) {
-        toast.error("Сейчас ход соперника");
-        return;
-      }
-
-      const piece = g.get(square);
-      const isOwnPiece = piece?.color === g.turn();
-      if (selectedSquare === square) {
-        clearSelection();
-        return;
-      }
-
-      if (selectedSquare && legalDestinations.includes(square)) {
-        const move = g.move({ from: selectedSquare, to: square, promotion: "q" });
-        if (!move) {
-          clearSelection();
-          return;
-        }
+      try {
+        const move = g.move({ from, to, promotion: "q" });
+        if (!move) return false;
 
         const newFen = g.fen();
         setFen(newFen);
         syncMoveHistory();
         syncLocalOrientation();
         clearSelection();
+
         const over = getEndState();
         if (over) {
           void finishGame(over);
@@ -451,6 +474,41 @@ export function ChessGame({
           if (mode === "ai") setTimeout(aiMove, 800);
           if (mode === "multiplayer") broadcastFen(newFen);
         }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [
+      aiMove,
+      broadcastFen,
+      canPlayerMove,
+      clearSelection,
+      finishGame,
+      getEndState,
+      mode,
+      syncLocalOrientation,
+      syncMoveHistory,
+      updateStatus,
+    ],
+  );
+
+  const handleBoardSquare = useCallback(
+    (square: string) => {
+      if (gameOver) return;
+      if (!canPlayerMove()) return;
+
+      const g = gameRef.current;
+      const piece = g.get(square);
+      const isOwnPiece = piece?.color === g.turn();
+
+      if (selectedSquare === square) {
+        clearSelection();
+        return;
+      }
+
+      if (selectedSquare && legalDestinations.includes(square)) {
+        applyMove(selectedSquare, square);
         return;
       }
 
@@ -463,7 +521,21 @@ export function ChessGame({
 
       clearSelection();
     },
-    [mode, playerColor, selectedSquare, legalDestinations, gameOver, syncLocalOrientation, getEndState, finishGame, updateStatus, aiMove, broadcastFen, clearSelection, syncMoveHistory],
+    [applyMove, canPlayerMove, clearSelection, gameOver, legalDestinations, selectedSquare],
+  );
+
+  const onSquareClick = useCallback(
+    ({ square }: { square: string }) => {
+      handleBoardSquare(square);
+    },
+    [handleBoardSquare],
+  );
+
+  const onPieceClick = useCallback(
+    ({ square }: { square: string | null }) => {
+      if (square) handleBoardSquare(square);
+    },
+    [handleBoardSquare],
   );
 
   const onPieceDrop = ({
@@ -474,44 +546,7 @@ export function ChessGame({
     targetSquare: string | null;
   }) => {
     if (!targetSquare || gameOver) return false;
-    const g = gameRef.current;
-
-    if (mode === "multiplayer") {
-      const turnColor = g.turn() === "w" ? "white" : "black";
-      if (turnColor !== playerColor) {
-        toast.error("Сейчас ход соперника");
-        return false;
-      }
-    }
-    if (mode === "ai") {
-      const turnColor = g.turn() === "w" ? "white" : "black";
-      if (turnColor !== humanColor) {
-        toast.error("Сейчас ход соперника");
-        return false;
-      }
-    }
-
-    try {
-      const move = g.move({ from: sourceSquare, to: targetSquare, promotion: "q" });
-      if (!move) return false;
-      const newFen = g.fen();
-      setFen(newFen);
-      syncMoveHistory();
-      syncLocalOrientation();
-      clearSelection();
-
-      const over = getEndState();
-      if (over) {
-        void finishGame(over);
-      } else {
-        updateStatus();
-        if (mode === "ai") setTimeout(aiMove, 800);
-        if (mode === "multiplayer") broadcastFen(newFen);
-      }
-      return true;
-    } catch {
-      return false;
-    }
+    return applyMove(sourceSquare, targetSquare);
   };
 
   const reset = () => {
@@ -579,7 +614,8 @@ export function ChessGame({
       position: fen,
       onPieceDrop,
       onSquareClick,
-      customSquareStyles,
+      onPieceClick,
+      squareStyles: customSquareStyles,
       boardOrientation: orientation,
       animationDurationInMs: 200,
       darkSquareStyle: currentBoardTheme.dark,
@@ -588,7 +624,7 @@ export function ChessGame({
       boardWidth,
       id: `great-chess-${mode}-${roomId ?? "solo"}`,
     }),
-    [fen, orientation, mode, roomId, customSquareStyles, onPieceDrop, onSquareClick, currentBoardTheme, boardWidth],
+    [fen, orientation, mode, roomId, customSquareStyles, onPieceDrop, onSquareClick, onPieceClick, currentBoardTheme, boardWidth],
   );
 
   const modeLabel =

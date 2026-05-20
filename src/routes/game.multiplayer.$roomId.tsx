@@ -1,14 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { ChessGame } from "@/components/ChessGame";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchSavedGamesForUser, loadLatestOngoingGame } from "@/lib/game-repository";
-import { joinRoom, type RoomRecord } from "@/lib/rooms";
+import { getRoom, isRoomReady, joinRoom, type RoomRecord } from "@/lib/rooms";
 import type { StoredGame } from "@/lib/game-storage";
-import { Loader2, Users } from "lucide-react";
+import { Loader2, Users, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "@tanstack/react-router";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/game/multiplayer/$roomId")({
   component: GameMultiplayer,
@@ -23,9 +24,11 @@ function GameMultiplayer() {
   const [blackUserId, setBlackUserId] = useState<string | null>(null);
   const [roomFull, setRoomFull] = useState(false);
   const [roomMissing, setRoomMissing] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(true);
   const [resumeGame, setResumeGame] = useState<StoredGame | null>(null);
   const [roomState, setRoomState] = useState<RoomRecord | null>(null);
+  const [opponentReady, setOpponentReady] = useState(false);
 
   const [guestId] = useState(() => {
     if (typeof window === "undefined") return "guest-ssr";
@@ -39,25 +42,33 @@ function GameMultiplayer() {
 
   const currentUserId = user?.id ?? `guest-${guestId}`;
 
+  const applyRoomPlayers = useCallback((room: RoomRecord) => {
+    setWhiteUserId(room.white_player_id);
+    setBlackUserId(room.black_player_id);
+    setRoomState(room);
+    setOpponentReady(isRoomReady(room));
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
     async function connect() {
       setConnecting(true);
+      setJoinError(null);
+
       const joined = await joinRoom(roomId, currentUserId);
       if (cancelled) return;
 
       if (!joined.ok) {
         if (joined.reason === "full") setRoomFull(true);
-        if (joined.reason === "not_found") setRoomMissing(true);
+        else if (joined.reason === "not_found") setRoomMissing(true);
+        else setJoinError(joined.message ?? "Не удалось войти в комнату");
         setConnecting(false);
         return;
       }
 
       setPlayerColor(joined.color);
-      setWhiteUserId(joined.whiteUserId);
-      setBlackUserId(joined.blackUserId);
-      setRoomState(joined.room);
+      applyRoomPlayers(joined.room);
 
       let roomMatch = (await loadLatestOngoingGame("multiplayer", user?.id ?? null)) ?? null;
       if (roomMatch?.roomId !== roomId && user?.id) {
@@ -95,7 +106,28 @@ function GameMultiplayer() {
     return () => {
       cancelled = true;
     };
-  }, [roomId, currentUserId, user?.id]);
+  }, [roomId, currentUserId, user?.id, applyRoomPlayers]);
+
+  // Ожидание второго игрока: опрос комнаты
+  useEffect(() => {
+    if (!playerColor || opponentReady) return;
+
+    const poll = async () => {
+      const room = await getRoom(roomId);
+      if (!room) return;
+      applyRoomPlayers(room);
+    };
+
+    const interval = setInterval(() => void poll(), 2000);
+    void poll();
+    return () => clearInterval(interval);
+  }, [roomId, playerColor, opponentReady, applyRoomPlayers]);
+
+  const copyInvite = () => {
+    const url = new URL(`/game/multiplayer/${roomId}`, window.location.origin).toString();
+    navigator.clipboard.writeText(url);
+    toast.success("Ссылка скопирована!");
+  };
 
   if (roomMissing) {
     return (
@@ -105,7 +137,7 @@ function GameMultiplayer() {
           <div className="glass mx-auto max-w-md rounded-2xl p-8">
             <h1 className="text-xl font-semibold">Комната не найдена</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Ссылка устарела или комната ещё не создана. Попросите друга отправить новую ссылку.
+              Сначала создайте комнату на главной («Играть с другом» → онлайн), затем отправьте ссылку.
             </p>
             <Button className="mt-6" onClick={() => navigate({ to: "/" })}>
               На главную
@@ -125,8 +157,25 @@ function GameMultiplayer() {
             <Users className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
             <h1 className="text-xl font-semibold">Комната заполнена</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              В этой комнате уже играют два игрока. Создайте новую игру.
+              В этой комнате уже играют двое. Попросите друга создать новую комнату.
             </p>
+            <Button className="mt-6" onClick={() => navigate({ to: "/" })}>
+              На главную
+            </Button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (joinError) {
+    return (
+      <div className="min-h-screen">
+        <AppHeader />
+        <main className="container mx-auto px-4 py-16 text-center">
+          <div className="glass mx-auto max-w-md rounded-2xl p-8">
+            <h1 className="text-xl font-semibold">Ошибка подключения</h1>
+            <p className="mt-2 text-sm text-muted-foreground">{joinError}</p>
             <Button className="mt-6" onClick={() => navigate({ to: "/" })}>
               На главную
             </Button>
@@ -147,17 +196,35 @@ function GameMultiplayer() {
     );
   }
 
+  const isHost = roomState?.host_id === currentUserId;
+
   return (
     <div className="min-h-screen">
       <AppHeader />
       <main className="container mx-auto px-4 py-8">
         <h1 className="mb-2 text-2xl font-semibold tracking-tight">Онлайн · комната {roomId}</h1>
-        <p className="mb-6 text-sm text-muted-foreground">
+        <p className="mb-4 text-sm text-muted-foreground">
           Вы играете {playerColor === "white" ? "белыми" : "чёрными"}.
-          {roomState?.host_id === currentUserId
-            ? " Отправьте ссылку другу."
-            : " Ожидайте ход или сделайте свой."}
+          {isHost ? " Отправьте ссылку другу — ходы по очереди." : " Ходы по очереди."}
         </p>
+
+        {!opponentReady && (
+          <div className="glass mb-6 flex flex-col items-center gap-3 rounded-2xl p-6 text-center sm:flex-row sm:justify-between sm:text-left">
+            <div>
+              <p className="font-medium">Ожидаем соперника…</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Как только друг откроет ссылку, партия начнётся. Белые ходят первыми.
+              </p>
+            </div>
+            {isHost && (
+              <Button variant="secondary" onClick={copyInvite}>
+                <Link2 className="mr-2 h-4 w-4" />
+                Копировать ссылку
+              </Button>
+            )}
+          </div>
+        )}
+
         <ChessGame
           mode="multiplayer"
           roomId={roomId}
@@ -167,6 +234,7 @@ function GameMultiplayer() {
           currentUserId={currentUserId}
           onEloApplied={reloadProfile}
           resumeGame={resumeGame}
+          multiplayerReady={opponentReady}
         />
       </main>
     </div>

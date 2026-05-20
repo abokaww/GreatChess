@@ -24,7 +24,7 @@ function Matches() {
       setLoading(true);
       const list = user?.id
         ? await fetchSavedGamesForUser(user.id)
-        : loadSavedGames();
+        : loadSavedGames(null);
       if (!cancelled) {
         setGames(list.sort((a, b) => b.updatedAt - a.updatedAt));
         setLoading(false);

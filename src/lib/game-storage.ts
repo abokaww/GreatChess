@@ -15,8 +15,17 @@ export type StoredGame = {
   finished: boolean;
 };
 
-const STORAGE_KEY = "gc:ongoing-games";
+const STORAGE_KEY_BASE = "gc:ongoing-games";
 const VISUAL_KEY = "gc:visual-preferences";
+const LEGACY_KEY = "gc:ongoing-games";
+
+/** Ключ localStorage привязан к аккаунту — у разных Google-почт разная история на одном устройстве. */
+export function storageKeyForUser(userId: string | null | undefined): string {
+  if (userId && !userId.startsWith("guest")) {
+    return `${STORAGE_KEY_BASE}:${userId}`;
+  }
+  return `${STORAGE_KEY_BASE}:guest`;
+}
 
 function safeParse<T>(value: string | null): T | null {
   if (!value) return null;
@@ -27,9 +36,21 @@ function safeParse<T>(value: string | null): T | null {
   }
 }
 
-export function loadSavedGames(): StoredGame[] {
+export function loadSavedGames(userId?: string | null): StoredGame[] {
   if (typeof window === "undefined") return [];
-  const saved = safeParse<StoredGame[]>(window.localStorage.getItem(STORAGE_KEY));
+  const key = storageKeyForUser(userId);
+  let saved = safeParse<StoredGame[]>(window.localStorage.getItem(key));
+
+  // Однократная миграция со старого общего ключа (только для гостя)
+  if ((!saved || !saved.length) && key.endsWith(":guest")) {
+    const legacy = safeParse<StoredGame[]>(window.localStorage.getItem(LEGACY_KEY));
+    if (legacy?.length) {
+      saved = legacy;
+      window.localStorage.setItem(key, JSON.stringify(legacy));
+      window.localStorage.removeItem(LEGACY_KEY);
+    }
+  }
+
   if (!Array.isArray(saved)) return [];
 
   const merged = new Map<string, StoredGame>();
@@ -44,25 +65,24 @@ export function loadSavedGames(): StoredGame[] {
   return Array.from(merged.values());
 }
 
-export function loadLatestSavedGame(mode: GameMode): StoredGame | null {
-  const games = loadSavedGames().filter((item) => item.mode === mode && !item.finished);
+export function loadLatestSavedGame(mode: GameMode, userId?: string | null): StoredGame | null {
+  const games = loadSavedGames(userId).filter((item) => item.mode === mode && !item.finished);
   if (!games.length) return null;
   return games.sort((a, b) => b.updatedAt - a.updatedAt)[0];
 }
 
-export function loadOngoingGame(mode: GameMode): StoredGame | null {
-  const games = loadSavedGames().filter((item) => item.mode === mode && !item.finished);
-  if (!games.length) return null;
-  return games.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+export function loadOngoingGame(mode: GameMode, userId?: string | null): StoredGame | null {
+  return loadLatestSavedGame(mode, userId);
 }
 
-export function getSavedGame(id: string): StoredGame | null {
-  return loadSavedGames().find((item) => item.id === id) ?? null;
+export function getSavedGame(id: string, userId?: string | null): StoredGame | null {
+  return loadSavedGames(userId).find((item) => item.id === id) ?? null;
 }
 
-export function saveGame(game: StoredGame) {
+export function saveGame(game: StoredGame, userId?: string | null) {
   if (typeof window === "undefined") return;
-  const games = loadSavedGames().filter(
+  const key = storageKeyForUser(userId);
+  const games = loadSavedGames(userId).filter(
     (item) =>
       item.id !== game.id &&
       !(item.mode === game.mode && !item.finished && !game.finished),
@@ -77,13 +97,14 @@ export function saveGame(game: StoredGame) {
     }
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(merged.values())));
+  window.localStorage.setItem(key, JSON.stringify(Array.from(merged.values())));
 }
 
-export function removeSavedGame(id: string) {
+export function removeSavedGame(id: string, userId?: string | null) {
   if (typeof window === "undefined") return;
-  const games = loadSavedGames().filter((item) => item.id !== id);
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(games));
+  const key = storageKeyForUser(userId);
+  const games = loadSavedGames(userId).filter((item) => item.id !== id);
+  window.localStorage.setItem(key, JSON.stringify(games));
 }
 
 export type VisualPreferences = {
