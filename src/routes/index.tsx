@@ -7,6 +7,7 @@ import { lovable } from "@/integrations/auth/index";
 import { AppHeader } from "@/components/AppHeader";
 import { ProfileCard } from "@/components/ProfileCard";
 import { FriendPlayDialog } from "@/components/FriendPlayDialog";
+import { loadSavedGames, StoredGame } from "@/lib/game-storage";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -17,11 +18,16 @@ function Index() {
   const { user, loading, reloadProfile } = useAuth();
   const navigate = useNavigate();
   const [friendOpen, setFriendOpen] = useState(false);
+  const [ongoingGames, setOngoingGames] = useState<StoredGame[]>([]);
 
   useEffect(() => {
     if (!user) return;
     void reloadProfile();
   }, [user, reloadProfile]);
+
+  useEffect(() => {
+    setOngoingGames(loadSavedGames().filter((game) => !game.finished));
+  }, []);
 
   const signInGoogle = async () => {
     const res = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
@@ -107,12 +113,48 @@ function Index() {
               onClick={() => setFriendOpen(true)}
             />
             <DashCard
-              icon={Trophy}
-              title="Рейтинг игроков"
-              desc="Лидерборд по городам Казахстана"
-              onClick={() => navigate({ to: "/leaderboard" })}
+              icon={Sparkles}
+              title="Визуал"
+              desc="Выбери стиль доски и темы фигур"
+              onClick={() => navigate({ to: "/visual" })}
             />
           </div>
+
+          {ongoingGames.length > 0 && (
+            <section className="mt-10">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Матчи в процессе</p>
+                  <h2 className="text-2xl font-semibold">Продолжи игру позже</h2>
+                </div>
+                <Button variant="outline" onClick={() => navigate({ to: "/matches" })}>
+                  Все матчи
+                </Button>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {ongoingGames.map((game) => (
+                  <div key={game.id} className="glass rounded-2xl p-6">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="text-sm text-muted-foreground">
+                          {game.mode === "ai" ? "ИИ" : "Локальная"}
+                        </div>
+                        <div className="mt-1 text-lg font-semibold">{game.title}</div>
+                        <div className="mt-2 text-sm text-muted-foreground">
+                          Последний ход: {new Date(game.updatedAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" onClick={() => navigate({ to: `/match/${game.id}` })}>
+                          Продолжить
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <Link to="/pro" className="mt-8 block">
             <div className="glass shadow-elegant flex items-center justify-between rounded-2xl border-primary/30 p-6 transition hover:border-primary">

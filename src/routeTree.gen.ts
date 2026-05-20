@@ -9,17 +9,30 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as VisualRouteImport } from './routes/visual'
 import { Route as ProRouteImport } from './routes/pro'
+import { Route as MatchesRouteImport } from './routes/matches'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as MatchIdRouteImport } from './routes/match.$id'
 import { Route as GameLocalRouteImport } from './routes/game.local'
 import { Route as GameAiRouteImport } from './routes/game.ai'
 import { Route as GameIdRouteImport } from './routes/game.$id'
 import { Route as GameMultiplayerRoomIdRouteImport } from './routes/game.multiplayer.$roomId'
 
+const VisualRoute = VisualRouteImport.update({
+  id: '/visual',
+  path: '/visual',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProRoute = ProRouteImport.update({
   id: '/pro',
   path: '/pro',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MatchesRoute = MatchesRouteImport.update({
+  id: '/matches',
+  path: '/matches',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LeaderboardRoute = LeaderboardRouteImport.update({
@@ -30,6 +43,11 @@ const LeaderboardRoute = LeaderboardRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MatchIdRoute = MatchIdRouteImport.update({
+  id: '/match/$id',
+  path: '/match/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GameLocalRoute = GameLocalRouteImport.update({
@@ -56,29 +74,38 @@ const GameMultiplayerRoomIdRoute = GameMultiplayerRoomIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/leaderboard': typeof LeaderboardRoute
+  '/matches': typeof MatchesRoute
   '/pro': typeof ProRoute
+  '/visual': typeof VisualRoute
   '/game/$id': typeof GameIdRoute
   '/game/ai': typeof GameAiRoute
   '/game/local': typeof GameLocalRoute
+  '/match/$id': typeof MatchIdRoute
   '/game/multiplayer/$roomId': typeof GameMultiplayerRoomIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/leaderboard': typeof LeaderboardRoute
+  '/matches': typeof MatchesRoute
   '/pro': typeof ProRoute
+  '/visual': typeof VisualRoute
   '/game/$id': typeof GameIdRoute
   '/game/ai': typeof GameAiRoute
   '/game/local': typeof GameLocalRoute
+  '/match/$id': typeof MatchIdRoute
   '/game/multiplayer/$roomId': typeof GameMultiplayerRoomIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/leaderboard': typeof LeaderboardRoute
+  '/matches': typeof MatchesRoute
   '/pro': typeof ProRoute
+  '/visual': typeof VisualRoute
   '/game/$id': typeof GameIdRoute
   '/game/ai': typeof GameAiRoute
   '/game/local': typeof GameLocalRoute
+  '/match/$id': typeof MatchIdRoute
   '/game/multiplayer/$roomId': typeof GameMultiplayerRoomIdRoute
 }
 export interface FileRouteTypes {
@@ -86,48 +113,74 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/leaderboard'
+    | '/matches'
     | '/pro'
+    | '/visual'
     | '/game/$id'
     | '/game/ai'
     | '/game/local'
+    | '/match/$id'
     | '/game/multiplayer/$roomId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/leaderboard'
+    | '/matches'
     | '/pro'
+    | '/visual'
     | '/game/$id'
     | '/game/ai'
     | '/game/local'
+    | '/match/$id'
     | '/game/multiplayer/$roomId'
   id:
     | '__root__'
     | '/'
     | '/leaderboard'
+    | '/matches'
     | '/pro'
+    | '/visual'
     | '/game/$id'
     | '/game/ai'
     | '/game/local'
+    | '/match/$id'
     | '/game/multiplayer/$roomId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LeaderboardRoute: typeof LeaderboardRoute
+  MatchesRoute: typeof MatchesRoute
   ProRoute: typeof ProRoute
+  VisualRoute: typeof VisualRoute
   GameIdRoute: typeof GameIdRoute
   GameAiRoute: typeof GameAiRoute
   GameLocalRoute: typeof GameLocalRoute
+  MatchIdRoute: typeof MatchIdRoute
   GameMultiplayerRoomIdRoute: typeof GameMultiplayerRoomIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/visual': {
+      id: '/visual'
+      path: '/visual'
+      fullPath: '/visual'
+      preLoaderRoute: typeof VisualRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pro': {
       id: '/pro'
       path: '/pro'
       fullPath: '/pro'
       preLoaderRoute: typeof ProRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/matches': {
+      id: '/matches'
+      path: '/matches'
+      fullPath: '/matches'
+      preLoaderRoute: typeof MatchesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/leaderboard': {
@@ -142,6 +195,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/match/$id': {
+      id: '/match/$id'
+      path: '/match/$id'
+      fullPath: '/match/$id'
+      preLoaderRoute: typeof MatchIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/game/local': {
@@ -178,10 +238,13 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LeaderboardRoute: LeaderboardRoute,
+  MatchesRoute: MatchesRoute,
   ProRoute: ProRoute,
+  VisualRoute: VisualRoute,
   GameIdRoute: GameIdRoute,
   GameAiRoute: GameAiRoute,
   GameLocalRoute: GameLocalRoute,
+  MatchIdRoute: MatchIdRoute,
   GameMultiplayerRoomIdRoute: GameMultiplayerRoomIdRoute,
 }
 export const routeTree = rootRouteImport

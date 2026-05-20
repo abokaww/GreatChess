@@ -12,6 +12,8 @@ import {
 import { GameCoachPanel } from "@/components/GameCoachPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { applyOnlineEloForCurrentPlayer } from "@/lib/elo-update";
+import { getSavedGame, loadLatestSavedGame, loadVisualPreferences, removeSavedGame, saveGame, StoredGame } from "@/lib/game-storage";
+import { getBoardTheme } from "@/lib/visual-themes";
 import type { ParsedResult } from "@/lib/elo";
 import { Bot, RotateCcw, Users, Copy, Flag, Trophy } from "lucide-react";
 import { toast } from "sonner";
@@ -31,6 +33,7 @@ type Props = {
   blackUserId?: string | null;
   currentUserId?: string | null;
   onEloApplied?: () => void;
+  resumeGame?: StoredGame | null;
 };
 
 export function ChessGame({
@@ -41,6 +44,7 @@ export function ChessGame({
   blackUserId,
   currentUserId,
   onEloApplied,
+  resumeGame = null,
 }: Props) {
   const gameRef = useRef(new Chess());
   const [fen, setFen] = useState(gameRef.current.fen());
@@ -49,11 +53,18 @@ export function ChessGame({
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [humanColor, setHumanColor] = useState<"white" | "black">(playerColor);
-  const [soundEnabled, setSoundEnabled] = useState(false);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [legalDestinations, setLegalDestinations] = useState<string[]>([]);
   const [boardOrientation, setBoardOrientation] = useState<"white" | "black">("white");
+  const [boardThemeKey, setBoardThemeKey] = useState<string>("default");
+  const [pieceThemeKey, setPieceThemeKey] = useState<string>("default");
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
+  const [gameId, setGameId] = useState<string>(() => {
+    if (typeof window !== "undefined" && typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return `game-${Date.now()}`;
+  });
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const remoteUpdateRef = useRef(false);
   const eloAppliedRef = useRef(false);
@@ -62,15 +73,6 @@ export function ChessGame({
   const [replayIndex, setReplayIndex] = useState<number>(0);
 
   useEffect(() => setMounted(true), []);
-
-  useEffect(() => {
-    try {
-      const v = localStorage.getItem("gc:sound");
-      setSoundEnabled(v === "1");
-    } catch {
-      setSoundEnabled(false);
-    }
-  }, [soundEnabled]);
 
   const syncMoveHistory = useCallback(() => {
     setMoveHistory(gameRef.current.history());
@@ -117,57 +119,73 @@ export function ChessGame({
     setLegalDestinations([]);
   }, []);
 
-  const playMoveSound = useCallback(() => {
-    if (!soundEnabled) return;
-    if (typeof window === "undefined") return;
-    try {
-      const AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContext) return;
-      const ctx = new AudioContext();
-
-      // Two-oscillator percussive tone with filter for a warmer "wood" feel
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const filter = ctx.createBiquadFilter();
-
-      osc1.type = "triangle";
-      osc2.type = "sine";
-      osc1.frequency.value = 220;
-      osc2.frequency.value = 440;
-
-      filter.type = "lowpass";
-      filter.frequency.value = 1200;
-
-      gain.gain.value = 0.0001;
-
-      osc1.connect(filter);
-      osc2.connect(filter);
-      filter.connect(gain);
-      gain.connect(ctx.destination);
-
-      const now = ctx.currentTime;
-      // quick percussive envelope
-      gain.gain.cancelScheduledValues(now);
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.08, now + 0.006);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
-
-      osc1.start(now);
-      osc2.start(now);
-      osc1.stop(now + 0.28);
-      osc2.stop(now + 0.28);
-
-      // close context when done
-      setTimeout(() => {
-        try {
-          ctx.close();
-        } catch {}
-      }, 400);
-    } catch {
-      // ignore unsupported playback
-    }
+  const loadThemeSettings = useCallback(() => {
+    const preferences = loadVisualPreferences();
+    setBoardThemeKey(preferences.boardTheme);
+    setPieceThemeKey(preferences.pieceTheme);
   }, []);
+
+  const currentBoardTheme = getBoardTheme(boardThemeKey);
+
+  const saveCurrentGame = useCallback(
+    (finished = false) => {
+      if (typeof window === "undefined") return;
+      if (mode !== "ai" && mode !== "local") return;
+      saveGame({
+        id: gameId,
+        mode,
+        title: mode === "ai" ? `ИИ: ${humanColor === "white" ? "белыми" : "чёрными"}` : "Локальная игра",
+        updatedAt: Date.now(),
+        fen: gameRef.current.fen(),
+        pgn: gameRef.current.pgn(),
+        humanColor: mode === "ai" ? humanColor : undefined,
+        playerColor: mode === "local" ? playerColor : undefined,
+        boardTheme: boardThemeKey,
+        pieceTheme: pieceThemeKey,
+        finished,
+      });
+    },
+    [boardThemeKey, humanColor, mode, gameId, pieceThemeKey, playerColor],
+  );
+
+  const clearSavedGame = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (mode !== "ai" && mode !== "local") return;
+    removeSavedGame(gameId);
+  }, [gameId, mode]);
+
+  useEffect(() => {
+    if (mode === "ai" || mode === "local") {
+      const saved = resumeGame?.id ? resumeGame : loadLatestSavedGame(mode);
+      if (saved && !saved.finished) {
+        const loaded = new Chess();
+        loaded.loadPgn(saved.pgn);
+        gameRef.current = loaded;
+        setFen(saved.fen);
+        setHumanColor(saved.humanColor ?? playerColor);
+        setBoardThemeKey(saved.boardTheme ?? "default");
+        setPieceThemeKey(saved.pieceTheme ?? "default");
+        setGameId(saved.id);
+        setStatus(loaded.turn() === "w" ? "Ход белых" : "Ход чёрных");
+        setMoveHistory(loaded.history());
+        return;
+      }
+    }
+
+    loadThemeSettings();
+  }, [loadThemeSettings, mode, playerColor, resumeGame]);
+
+  useEffect(() => {
+    if (!gameOver && (mode === "ai" || mode === "local")) {
+      saveCurrentGame(false);
+    }
+  }, [gameOver, moveHistory, mode, saveCurrentGame]);
+
+  useEffect(() => {
+    if (gameOver && (mode === "ai" || mode === "local")) {
+      saveCurrentGame(true);
+    }
+  }, [gameOver, mode, saveCurrentGame]);
 
   const syncLocalOrientation = useCallback(() => {
     if (mode !== "local") return;
@@ -299,7 +317,6 @@ export function ChessGame({
     setFen(g.fen());
     syncMoveHistory();
     syncLocalOrientation();
-    playMoveSound();
     const over = getEndState();
     if (over) {
       void finishGame(over);
@@ -311,7 +328,7 @@ export function ChessGame({
       const nextTurn = g.turn() === "w" ? "white" : "black";
       if (nextTurn === aiColor) setTimeout(aiMove, 800);
     }
-  }, [getEndState, finishGame, updateStatus, mode, syncLocalOrientation, syncMoveHistory, playMoveSound, humanColor]);
+  }, [getEndState, finishGame, updateStatus, mode, syncLocalOrientation, syncMoveHistory, humanColor]);
 
   useEffect(() => {
     if (mode !== "ai") return;
@@ -354,8 +371,6 @@ export function ChessGame({
         syncMoveHistory();
         syncLocalOrientation();
         clearSelection();
-        playMoveSound();
-
         const over = getEndState();
         if (over) {
           void finishGame(over);
@@ -376,7 +391,7 @@ export function ChessGame({
 
       clearSelection();
     },
-    [mode, playerColor, selectedSquare, legalDestinations, gameOver, syncLocalOrientation, getEndState, finishGame, updateStatus, aiMove, broadcastFen, clearSelection, playMoveSound, syncMoveHistory],
+    [mode, playerColor, selectedSquare, legalDestinations, gameOver, syncLocalOrientation, getEndState, finishGame, updateStatus, aiMove, broadcastFen, clearSelection, syncMoveHistory],
   );
 
   const onPieceDrop = ({
@@ -412,7 +427,6 @@ export function ChessGame({
       syncMoveHistory();
       syncLocalOrientation();
       clearSelection();
-      playMoveSound();
 
       const over = getEndState();
       if (over) {
@@ -493,12 +507,12 @@ export function ChessGame({
       customSquareStyles,
       boardOrientation: orientation,
       animationDurationInMs: 200,
-      darkSquareStyle: { backgroundColor: "oklch(0.32 0.04 200)" },
-      lightSquareStyle: { backgroundColor: "oklch(0.85 0.02 100)" },
-      boardStyle: { borderRadius: "12px", boxShadow: "var(--shadow-elegant)" },
+      darkSquareStyle: currentBoardTheme.dark,
+      lightSquareStyle: currentBoardTheme.light,
+      boardStyle: currentBoardTheme.boardStyle,
       id: `great-chess-${mode}-${roomId ?? "solo"}`,
     }),
-    [fen, orientation, mode, roomId, customSquareStyles, onPieceDrop, onSquareClick],
+    [fen, orientation, mode, roomId, customSquareStyles, onPieceDrop, onSquareClick, currentBoardTheme],
   );
 
   const modeLabel =
@@ -549,13 +563,6 @@ export function ChessGame({
                   <Copy className="mr-1 h-3 w-3" /> Пригласить
                 </Button>
               )}
-              <Button variant="ghost" size="sm" onClick={() => {
-                const v = !soundEnabled;
-                setSoundEnabled(v);
-                try { localStorage.setItem("gc:sound", v ? "1" : "0"); } catch {}
-              }}>
-                {soundEnabled ? "Звук: вкл" : "Звук: выкл"}
-              </Button>
               <Button variant="ghost" size="sm" onClick={resign} disabled={!!gameOver}>
                 <Flag className="mr-1 h-3 w-3" /> Сдаться
               </Button>
