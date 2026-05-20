@@ -135,13 +135,19 @@ export async function persistGame(game: StoredGame, userId: string | null | unde
   const payload = storedToRow(normalized, userId);
 
   if (!game.finished) {
-    const { data: ongoing } = await supabase
+    let query = supabase
       .from("saved_games")
       .select("id")
       .eq("user_id", userId)
-      .eq("mode", game.mode)
       .eq("finished", false);
 
+    if (game.mode === "multiplayer" && game.roomId) {
+      query = query.eq("room_id", game.roomId);
+    } else {
+      query = query.eq("mode", game.mode);
+    }
+
+    const { data: ongoing } = await query;
     const staleIds = (ongoing ?? [])
       .map((row) => row.id as string)
       .filter((existingId) => existingId !== id);
@@ -212,6 +218,63 @@ export async function migrateGuestGamesOnce(userId: string): Promise<void> {
 
   localStorage.removeItem("gc:ongoing-games:guest");
   localStorage.setItem(flag, "1");
+}
+
+/** Сохраняет одну и ту же онлайн-партию в истории обоих игроков. */
+export async function persistMultiplayerForBoth(params: {
+  roomId: string;
+  roomName: string;
+  fen: string;
+  pgn: string;
+  finished: boolean;
+  hostUserId: string;
+  guestUserId: string | null;
+  hostColor: "white" | "black";
+  boardTheme: string;
+  pieceTheme: string;
+  currentUserId: string;
+  currentUserGameId: string;
+}): Promise<void> {
+  const guestColor: "white" | "black" = params.hostColor === "white" ? "black" : "white";
+  const players: { userId: string; color: "white" | "black" }[] = [
+    { userId: params.hostUserId, color: params.hostColor },
+  ];
+  if (params.guestUserId) {
+    players.push({ userId: params.guestUserId, color: guestColor });
+  }
+
+  for (const player of players) {
+    const { data: existing } = await supabase
+      .from("saved_games")
+      .select("id")
+      .eq("user_id", player.userId)
+      .eq("room_id", params.roomId)
+      .eq("mode", "multiplayer")
+      .eq("finished", false)
+      .maybeSingle();
+
+    const id =
+      player.userId === params.currentUserId
+        ? params.currentUserGameId
+        : (existing?.id as string | undefined) ?? crypto.randomUUID();
+
+    await persistGame(
+      {
+        id,
+        mode: "multiplayer",
+        title: `Онлайн: ${params.roomName}`,
+        roomId: params.roomId,
+        playerColor: player.color,
+        fen: params.fen,
+        pgn: params.pgn,
+        boardTheme: params.boardTheme,
+        pieceTheme: params.pieceTheme,
+        finished: params.finished,
+        updatedAt: Date.now(),
+      },
+      player.userId,
+    );
+  }
 }
 
 export async function loadLatestOngoingGame(

@@ -10,7 +10,6 @@ import { ProfileCard } from "@/components/ProfileCard";
 import { FriendPlayDialog } from "@/components/FriendPlayDialog";
 import { loadSavedGames, StoredGame } from "@/lib/game-storage";
 import { deleteGameForUser, fetchSavedGamesForUser } from "@/lib/game-repository";
-import { createRoom } from "@/lib/rooms";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -96,24 +95,13 @@ function Index() {
     if (warningMode === "local") navigate({ to: "/game/local" });
   };
 
-  const startMultiplayerRoom = async (hostColor: "white" | "black") => {
-    const roomId = Math.random().toString(36).slice(2, 10);
-    let guestId = sessionStorage.getItem("gc_guest_id");
-    if (!guestId) {
-      guestId = crypto.randomUUID();
-      sessionStorage.setItem("gc_guest_id", guestId);
-    }
-    const hostId = user?.id ?? `guest-${guestId}`;
-    const created = await createRoom(roomId, hostId, hostColor);
-    if (!created.ok) {
-      toast.error(created.error || "Не удалось создать комнату");
+  const openMultiplayer = () => {
+    if (!user) {
+      toast.error("Войдите через Google для онлайн-игры");
+      void signInGoogle();
       return;
     }
-    navigate({
-      to: "/game/multiplayer/$roomId",
-      params: { roomId },
-      search: { hc: hostColor },
-    });
+    navigate({ to: "/game/multiplayer" });
   };
 
   const handleViewMatches = () => {
@@ -286,9 +274,7 @@ function Index() {
         open={friendOpen}
         onOpenChange={setFriendOpen}
         onPlayLocal={() => handleStartNewGame("local", () => navigate({ to: "/game/local" }))}
-        onPlayMultiplayer={(hostColor) =>
-          handleStartNewGame("multiplayer", () => void startMultiplayerRoom(hostColor))
-        }
+        onPlayMultiplayer={() => handleStartNewGame("multiplayer", openMultiplayer)}
       />
       <Dialog open={warningOpen} onOpenChange={setWarningOpen}>
         <DialogContent className="glass border-border/50 sm:max-w-md">

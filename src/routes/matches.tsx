@@ -95,7 +95,7 @@ function Matches() {
                     <Button
                       size="sm"
                       onClick={() => {
-                        if (game.mode === "multiplayer" && game.roomId) {
+                        if (game.mode === "multiplayer" && game.roomId && user?.id) {
                           navigate({
                             to: "/game/multiplayer/$roomId",
                             params: { roomId: game.roomId },

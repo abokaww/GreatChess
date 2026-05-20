@@ -14,12 +14,17 @@ import type { CoachAnalysisScope } from "@/lib/gemini-coach";
 import { supabase } from "@/integrations/supabase/client";
 import { applyOnlineEloForCurrentPlayer } from "@/lib/elo-update";
 import { loadVisualPreferences, StoredGame } from "@/lib/game-storage";
-import { deleteGameForUser, loadLatestOngoingGame, persistGame } from "@/lib/game-repository";
-import { finishRoom, getRoom, getRoomMetaFromSession, updateRoomPosition } from "@/lib/rooms";
+import {
+  deleteGameForUser,
+  loadLatestOngoingGame,
+  persistGame,
+  persistMultiplayerForBoth,
+} from "@/lib/game-repository";
+import { finishRoom, getRoomById, updateRoomPosition } from "@/lib/rooms";
 import { useAuth } from "@/hooks/use-auth";
 import { getBoardTheme } from "@/lib/visual-themes";
 import type { ParsedResult } from "@/lib/elo";
-import { Bot, RotateCcw, Users, Copy, Flag, Trophy } from "lucide-react";
+import { Bot, RotateCcw, Users, Flag, Trophy } from "lucide-react";
 import { toast } from "sonner";
 
 export type GameMode = "ai" | "local" | "multiplayer";
@@ -32,6 +37,10 @@ export type GameOverState = {
 type Props = {
   mode: GameMode;
   roomId?: string;
+  roomName?: string;
+  roomHostUserId?: string;
+  roomGuestUserId?: string | null;
+  roomHostColor?: "white" | "black";
   playerColor?: "white" | "black";
   whiteUserId?: string | null;
   blackUserId?: string | null;
@@ -45,6 +54,10 @@ type Props = {
 export function ChessGame({
   mode,
   roomId,
+  roomName,
+  roomHostUserId,
+  roomGuestUserId = null,
+  roomHostColor = "white",
   playerColor = "white",
   whiteUserId,
   blackUserId,
@@ -150,7 +163,29 @@ export function ChessGame({
 
   const saveCurrentGame = useCallback(
     (finished = false) => {
-      if (typeof window === "undefined") return;
+      if (typeof window === "undefined" || !user?.id) return;
+
+      const fen = gameRef.current.fen();
+      const pgn = gameRef.current.pgn();
+
+      if (mode === "multiplayer" && roomId && roomHostUserId && roomName) {
+        void persistMultiplayerForBoth({
+          roomId,
+          roomName,
+          fen,
+          pgn,
+          finished,
+          hostUserId: roomHostUserId,
+          guestUserId: roomGuestUserId,
+          hostColor: roomHostColor,
+          boardTheme: boardThemeKey,
+          pieceTheme: pieceThemeKey,
+          currentUserId: user.id,
+          currentUserGameId: gameId,
+        });
+        return;
+      }
+
       const game: StoredGame = {
         id: gameId,
         mode,
@@ -160,19 +195,32 @@ export function ChessGame({
             ? `ИИ: ${humanColor === "white" ? "белыми" : "чёрными"}`
             : mode === "local"
             ? "Локальная игра"
-            : `Онлайн: ${roomId ?? "комната"}`,
+            : `Онлайн: ${roomName ?? "комната"}`,
         updatedAt: Date.now(),
-        fen: gameRef.current.fen(),
-        pgn: gameRef.current.pgn(),
+        fen,
+        pgn,
         humanColor: mode === "ai" ? humanColor : undefined,
         playerColor: mode === "local" || mode === "multiplayer" ? playerColor : undefined,
         boardTheme: boardThemeKey,
         pieceTheme: pieceThemeKey,
         finished,
       };
-      void persistGame(game, user?.id);
+      void persistGame(game, user.id);
     },
-    [boardThemeKey, humanColor, mode, gameId, pieceThemeKey, playerColor, roomId, user?.id],
+    [
+      boardThemeKey,
+      humanColor,
+      mode,
+      gameId,
+      pieceThemeKey,
+      playerColor,
+      roomId,
+      roomName,
+      roomHostUserId,
+      roomGuestUserId,
+      roomHostColor,
+      user?.id,
+    ],
   );
 
   const syncRoomPosition = useCallback(() => {
@@ -365,7 +413,7 @@ export function ChessGame({
     if (mode !== "multiplayer" || !roomId || !multiplayerReady) return;
 
     const syncFromDb = async () => {
-      const room = await getRoom(roomId);
+      const room = await getRoomById(roomId);
       if (!room?.fen || remoteUpdateRef.current) return;
       if (room.fen !== gameRef.current.fen()) {
         applyRemoteFen(room.fen);
@@ -574,15 +622,6 @@ export function ChessGame({
     void finishGame({ result, reason: "Сдача" });
   };
 
-  const copyInvite = () => {
-    if (!roomId) return;
-    const url = new URL(`/game/multiplayer/${roomId}`, window.location.origin);
-    const meta = getRoomMetaFromSession(roomId);
-    if (meta) url.searchParams.set("hc", meta.hostColor);
-    navigator.clipboard.writeText(url.toString());
-    toast.success("Ссылка скопирована!");
-  };
-
   const orientation =
     mode === "local"
       ? boardOrientation
@@ -685,11 +724,6 @@ export function ChessGame({
           )}
             </div>
             <div className="flex gap-2">
-              {mode === "multiplayer" && roomId && (
-                <Button variant="ghost" size="sm" onClick={copyInvite}>
-                  <Copy className="mr-1 h-3 w-3" /> Пригласить друга
-                </Button>
-              )}
               <Button variant="ghost" size="sm" onClick={resign} disabled={!!gameOver}>
                 <Flag className="mr-1 h-3 w-3" /> Сдаться
               </Button>

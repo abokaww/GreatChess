@@ -17,10 +17,11 @@ export type Database = {
       rooms: {
         Row: {
           id: string
-          host_id: string
+          code: string
+          name: string
+          host_user_id: string
+          guest_user_id: string | null
           host_color: string
-          white_player_id: string | null
-          black_player_id: string | null
           fen: string
           pgn: string
           status: string
@@ -28,11 +29,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          id: string
-          host_id: string
+          id?: string
+          code: string
+          name: string
+          host_user_id: string
+          guest_user_id?: string | null
           host_color: string
-          white_player_id?: string | null
-          black_player_id?: string | null
           fen?: string
           pgn?: string
           status?: string
@@ -41,10 +43,11 @@ export type Database = {
         }
         Update: {
           id?: string
-          host_id?: string
+          code?: string
+          name?: string
+          host_user_id?: string
+          guest_user_id?: string | null
           host_color?: string
-          white_player_id?: string | null
-          black_player_id?: string | null
           fen?: string
           pgn?: string
           status?: string

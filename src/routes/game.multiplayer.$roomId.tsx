@@ -1,154 +1,131 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { ChessGame } from "@/components/ChessGame";
 import { useAuth } from "@/hooks/use-auth";
-import { fetchSavedGamesForUser, loadLatestOngoingGame } from "@/lib/game-repository";
-import { getRoom, isRoomReady, joinRoom, type RoomRecord } from "@/lib/rooms";
+import { lovable } from "@/integrations/auth/index";
+import { fetchSavedGamesForUser } from "@/lib/game-repository";
+import {
+  getPlayerColor,
+  getRoomById,
+  getWhiteBlackUserIds,
+  isRoomReady,
+  type RoomRecord,
+} from "@/lib/rooms";
 import type { StoredGame } from "@/lib/game-storage";
-import { Loader2, Users, Link2 } from "lucide-react";
+import { Loader2, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "@tanstack/react-router";
-import { toast } from "sonner";
-
-type RoomSearch = { hc?: "white" | "black" };
 
 export const Route = createFileRoute("/game/multiplayer/$roomId")({
-  validateSearch: (search: Record<string, unknown>): RoomSearch => ({
-    hc: search.hc === "black" ? "black" : search.hc === "white" ? "white" : undefined,
-  }),
-  component: GameMultiplayer,
+  component: GameMultiplayerRoom,
 });
 
-function GameMultiplayer() {
+function GameMultiplayerRoom() {
   const { roomId } = Route.useParams();
-  const { hc: hostColorFromLink } = Route.useSearch();
   const { user, reloadProfile } = useAuth();
   const navigate = useNavigate();
+  const [room, setRoom] = useState<RoomRecord | null>(null);
   const [playerColor, setPlayerColor] = useState<"white" | "black" | null>(null);
-  const [whiteUserId, setWhiteUserId] = useState<string | null>(null);
-  const [blackUserId, setBlackUserId] = useState<string | null>(null);
-  const [roomFull, setRoomFull] = useState(false);
-  const [roomMissing, setRoomMissing] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(true);
   const [resumeGame, setResumeGame] = useState<StoredGame | null>(null);
-  const [roomState, setRoomState] = useState<RoomRecord | null>(null);
-  const [opponentReady, setOpponentReady] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [guestId] = useState(() => {
-    if (typeof window === "undefined") return "guest-ssr";
-    let gid = sessionStorage.getItem("gc_guest_id");
-    if (!gid) {
-      gid = crypto.randomUUID();
-      sessionStorage.setItem("gc_guest_id", gid);
-    }
-    return gid;
-  });
-
-  const currentUserId = user?.id ?? `guest-${guestId}`;
-
-  const applyRoomPlayers = useCallback((room: RoomRecord) => {
-    setWhiteUserId(room.white_player_id);
-    setBlackUserId(room.black_player_id);
-    setRoomState(room);
-    setOpponentReady(isRoomReady(room));
-  }, []);
+  const applyRoom = useCallback(
+    (r: RoomRecord) => {
+      setRoom(r);
+      if (user) {
+        const color = getPlayerColor(r, user.id);
+        setPlayerColor(color);
+      }
+    },
+    [user],
+  );
 
   useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
 
-    async function connect() {
-      setConnecting(true);
-      setJoinError(null);
-
-      const joined = await joinRoom(roomId, currentUserId);
+    async function load() {
+      const r = await getRoomById(roomId);
       if (cancelled) return;
 
-      if (!joined.ok) {
-        if (joined.reason === "full") setRoomFull(true);
-        else if (joined.reason === "not_found") setRoomMissing(true);
-        else setJoinError(joined.message ?? "Не удалось войти в комнату");
-        setConnecting(false);
+      if (!r) {
+        setError("Комната не найдена");
+        setLoading(false);
         return;
       }
 
-      setPlayerColor(joined.color);
-      applyRoomPlayers(joined.room);
-
-      let roomMatch = (await loadLatestOngoingGame("multiplayer", user?.id ?? null)) ?? null;
-      if (roomMatch?.roomId !== roomId && user?.id) {
-        const games = await fetchSavedGamesForUser(user.id);
-        roomMatch = games.find((g) => g.roomId === roomId && !g.finished) ?? null;
-      } else if (roomMatch?.roomId !== roomId) {
-        roomMatch = null;
+      const color = getPlayerColor(r, user.id);
+      if (!color) {
+        setError("Вы не участник этой комнаты");
+        setLoading(false);
+        return;
       }
 
-      if (roomMatch) {
-        setResumeGame(roomMatch);
-      } else if (
-        joined.room.pgn &&
-        joined.room.fen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-      ) {
+      applyRoom(r);
+      setPlayerColor(color);
+
+      const games = await fetchSavedGamesForUser(user.id);
+      const match = games.find((g) => g.roomId === roomId && !g.finished) ?? null;
+      if (match) {
+        setResumeGame(match);
+      } else if (r.pgn && r.fen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") {
         setResumeGame({
           id: crypto.randomUUID(),
           mode: "multiplayer",
-          title: `Онлайн: ${roomId}`,
-          roomId,
+          title: `Онлайн: ${r.name}`,
+          roomId: r.id,
           updatedAt: Date.now(),
-          fen: joined.room.fen,
-          pgn: joined.room.pgn,
-          playerColor: joined.color,
+          fen: r.fen,
+          pgn: r.pgn,
+          playerColor: color,
           boardTheme: "default",
           pieceTheme: "default",
           finished: false,
         });
       }
 
-      setConnecting(false);
+      setLoading(false);
     }
 
-    void connect();
+    void load();
     return () => {
       cancelled = true;
     };
-  }, [roomId, currentUserId, user?.id, applyRoomPlayers]);
+  }, [roomId, user, applyRoom]);
 
-  // Ожидание второго игрока: опрос комнаты
   useEffect(() => {
-    if (!playerColor || opponentReady) return;
+    if (!user || !room || isRoomReady(room)) return;
 
-    const poll = async () => {
-      const room = await getRoom(roomId);
-      if (!room) return;
-      applyRoomPlayers(room);
-    };
+    const poll = setInterval(async () => {
+      const fresh = await getRoomById(roomId);
+      if (fresh) applyRoom(fresh);
+    }, 2000);
 
-    const interval = setInterval(() => void poll(), 2000);
-    void poll();
-    return () => clearInterval(interval);
-  }, [roomId, playerColor, opponentReady, applyRoomPlayers]);
+    return () => clearInterval(poll);
+  }, [roomId, user, room, applyRoom]);
 
-  const copyInvite = () => {
-    const url = new URL(`/game/multiplayer/${roomId}`, window.location.origin);
-    if (roomState?.host_color) url.searchParams.set("hc", roomState.host_color);
-    else if (hostColorFromLink) url.searchParams.set("hc", hostColorFromLink);
-    navigator.clipboard.writeText(url.toString());
-    toast.success("Ссылка скопирована!");
-  };
-
-  if (roomMissing) {
+  if (!user) {
     return (
       <div className="min-h-screen">
         <AppHeader />
-        <main className="container mx-auto px-4 py-16 text-center">
-          <div className="glass mx-auto max-w-md rounded-2xl p-8">
-            <h1 className="text-xl font-semibold">Комната не найдена</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Сначала создайте комнату на главной («Играть с другом» → онлайн), затем отправьте ссылку.
-            </p>
-            <Button className="mt-6" onClick={() => navigate({ to: "/" })}>
-              На главную
+        <main className="container mx-auto max-w-md px-4 py-16 text-center">
+          <div className="glass rounded-2xl p-8">
+            <p className="text-muted-foreground">Войдите через Google для онлайн-игры.</p>
+            <Button
+              className="mt-4"
+              onClick={() =>
+                void lovable.auth.signInWithOAuth("google", {
+                  redirect_uri: window.location.origin + `/game/multiplayer/${roomId}`,
+                })
+              }
+            >
+              <Crown className="mr-2 h-4 w-4" />
+              Войти
             </Button>
           </div>
         </main>
@@ -156,94 +133,78 @@ function GameMultiplayer() {
     );
   }
 
-  if (roomFull) {
+  if (loading) {
     return (
       <div className="min-h-screen">
         <AppHeader />
-        <main className="container mx-auto px-4 py-16 text-center">
-          <div className="glass mx-auto max-w-md rounded-2xl p-8">
-            <Users className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
-            <h1 className="text-xl font-semibold">Комната заполнена</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              В этой комнате уже играют двое. Попросите друга создать новую комнату.
-            </p>
-            <Button className="mt-6" onClick={() => navigate({ to: "/" })}>
-              На главную
-            </Button>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  if (joinError) {
-    return (
-      <div className="min-h-screen">
-        <AppHeader />
-        <main className="container mx-auto px-4 py-16 text-center">
-          <div className="glass mx-auto max-w-md rounded-2xl p-8">
-            <h1 className="text-xl font-semibold">Ошибка подключения</h1>
-            <p className="mt-2 text-sm text-muted-foreground">{joinError}</p>
-            <Button className="mt-6" onClick={() => navigate({ to: "/" })}>
-              На главную
-            </Button>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  if (connecting || !playerColor) {
-    return (
-      <div className="min-h-screen">
-        <AppHeader />
-        <main className="container mx-auto flex min-h-[50vh] items-center justify-center px-4">
+        <main className="container mx-auto flex min-h-[50vh] items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </main>
       </div>
     );
   }
 
-  const isHost = roomState?.host_id === currentUserId;
+  if (error || !room || !playerColor) {
+    return (
+      <div className="min-h-screen">
+        <AppHeader />
+        <main className="container mx-auto max-w-md px-4 py-16 text-center">
+          <div className="glass rounded-2xl p-8">
+            <p className="text-muted-foreground">{error ?? "Ошибка загрузки"}</p>
+            <Button className="mt-4" onClick={() => navigate({ to: "/game/multiplayer" })}>
+              К онлайн-меню
+            </Button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const { whiteUserId, blackUserId } = getWhiteBlackUserIds(room);
+  const opponentReady = isRoomReady(room);
+  const isHost = room.host_user_id === user.id;
 
   return (
     <div className="min-h-screen">
       <AppHeader />
       <main className="container mx-auto px-4 py-8">
-        <h1 className="mb-2 text-2xl font-semibold tracking-tight">Онлайн · комната {roomId}</h1>
-        <p className="mb-4 text-sm text-muted-foreground">
-          Вы играете {playerColor === "white" ? "белыми" : "чёрными"}.
-          {isHost ? " Отправьте ссылку другу — ходы по очереди." : " Ходы по очереди."}
+        <h1 className="text-2xl font-semibold">{room.name}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Код: <span className="font-mono font-semibold tracking-wider">{room.code}</span>
+          {" · "}
+          Вы {playerColor === "white" ? "белыми" : "чёрными"}
         </p>
 
         {!opponentReady && (
-          <div className="glass mb-6 flex flex-col items-center gap-3 rounded-2xl p-6 text-center sm:flex-row sm:justify-between sm:text-left">
-            <div>
-              <p className="font-medium">Ожидаем соперника…</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Как только друг откроет ссылку, партия начнётся. Белые ходят первыми.
-              </p>
-            </div>
-            {isHost && (
-              <Button variant="secondary" onClick={copyInvite}>
-                <Link2 className="mr-2 h-4 w-4" />
-                Копировать ссылку
-              </Button>
+          <div className="glass mt-4 rounded-2xl p-4 text-sm text-muted-foreground">
+            {isHost ? (
+              <>
+                Ожидаем соперника. Друг должен войти через Google → «Войти по коду» →{" "}
+                <span className="font-mono font-semibold text-foreground">{room.code}</span>
+              </>
+            ) : (
+              "Ожидаем начала партии…"
             )}
           </div>
         )}
 
-        <ChessGame
-          mode="multiplayer"
-          roomId={roomId}
-          playerColor={playerColor}
-          whiteUserId={whiteUserId}
-          blackUserId={blackUserId}
-          currentUserId={currentUserId}
-          onEloApplied={reloadProfile}
-          resumeGame={resumeGame}
-          multiplayerReady={opponentReady}
-        />
+        <div className="mt-6">
+          <ChessGame
+            mode="multiplayer"
+            roomId={room.id}
+            roomName={room.name}
+            roomHostUserId={room.host_user_id}
+            roomGuestUserId={room.guest_user_id}
+            roomHostColor={room.host_color}
+            playerColor={playerColor}
+            whiteUserId={whiteUserId}
+            blackUserId={blackUserId}
+            currentUserId={user.id}
+            onEloApplied={reloadProfile}
+            resumeGame={resumeGame}
+            multiplayerReady={opponentReady}
+          />
+        </div>
       </main>
     </div>
   );
