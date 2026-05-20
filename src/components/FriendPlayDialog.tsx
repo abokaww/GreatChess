@@ -43,7 +43,7 @@ export function FriendPlayDialog({ open, onOpenChange, onPlayLocal, onPlayMultip
               По очереди на одном экране — доска переворачивается после каждого хода
             </span>
           </Button>
-          <Button
+          {/* <Button
             className="h-auto w-full flex-col items-start gap-1 bg-gradient-primary px-4 py-4 text-left text-primary-foreground hover:opacity-90"
             onClick={() => {
               onOpenChange(false);
@@ -57,7 +57,7 @@ export function FriendPlayDialog({ open, onOpenChange, onPlayLocal, onPlayMultip
             <span className="w-full whitespace-normal break-words text-xs font-normal opacity-90">
               Только с Google-аккаунтом: создать комнату или войти по коду
             </span>
-          </Button>
+          </Button> */}
         </div>
       </DialogContent>
     </Dialog>
