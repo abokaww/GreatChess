@@ -6,15 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { lovable } from "@/integrations/auth/index";
-import { createRoom, joinRoom } from "@/lib/rooms";
-import { ChevronLeft, Crown, DoorOpen, PlusCircle, Users } from "lucide-react";
+import { createRoom } from "@/lib/rooms";
+import { ChevronLeft, Crown, PlusCircle, Users } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/game/multiplayer")({
   component: MultiplayerLobby,
 });
 
-type Step = "menu" | "create" | "join" | "created";
+type Step = "menu" | "create";
 
 function MultiplayerLobby() {
   const { user, profile } = useAuth();
@@ -22,9 +22,6 @@ function MultiplayerLobby() {
   const [step, setStep] = useState<Step>("menu");
   const [roomName, setRoomName] = useState("");
   const [hostColor, setHostColor] = useState<"white" | "black">("white");
-  const [joinCode, setJoinCode] = useState("");
-  const [createdCode, setCreatedCode] = useState("");
-  const [createdRoomId, setCreatedRoomId] = useState("");
   const [loading, setLoading] = useState(false);
 
   const signInGoogle = async () => {
@@ -43,7 +40,7 @@ function MultiplayerLobby() {
             <Users className="mx-auto mb-4 h-10 w-10 text-primary" />
             <h1 className="text-xl font-semibold">Онлайн только для аккаунтов</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Войдите через Google, чтобы создавать комнаты и играть с друзьями по коду.
+              Войдите через Google, чтобы создавать комнаты и играть с друзьями по ссылке.
             </p>
             <Button className="mt-6 w-full" onClick={() => void signInGoogle()}>
               <Crown className="mr-2 h-4 w-4" />
@@ -60,33 +57,15 @@ function MultiplayerLobby() {
 
   const handleCreate = async () => {
     setLoading(true);
-    const result = await createRoom(roomName);
+    const result = await createRoom(roomName, hostColor);
     setLoading(false);
     if (!result.ok) {
       toast.error(result.error);
       return;
     }
-    setCreatedCode(result.room.code);
-    setCreatedRoomId(result.room.id);
-    toast.success("Комната создана! Перенаправляю в комнату...");
-    // Перенаправить хоста сразу в комнату, чтобы он видел доску и ожидал соперника
-    window.location.href = `/game/multiplayer/${result.room.id}`;
-  };
-
-  const handleJoin = async () => {
-    setLoading(true);
-    const result = await joinRoom(joinCode);
-    setLoading(false);
-    if (!result.ok) {
-      toast.error(result.message ?? result.reason ?? "Не удалось войти");
-      return;
-    }
-    window.location.href = `/game/multiplayer/${result.room.id}`;
-  };
-
-  const enterCreatedRoom = () => {
-    if (!createdRoomId) return;
-    navigate({ to: `/game/multiplayer/${createdRoomId}` });
+    const roomUrl = `${window.location.origin}/game/multiplayer/${result.room.id}`;
+    toast.success("Комната создана! Открываю комнату...");
+    window.location.href = roomUrl;
   };
 
   return (
@@ -101,9 +80,9 @@ function MultiplayerLobby() {
         {step === "menu" && (
           <div className="glass space-y-4 rounded-2xl p-6">
             <div>
-              <h1 className="text-2xl font-semibold">Онлайн с другом</h1>
+              <h1 className="text-2xl font-semibold">Онлайн по ссылке</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                {profile?.username ?? user.email} · только по коду комнаты
+                {profile?.username ?? user.email} · создайте комнату, выберите цвет и скопируйте ссылку.
               </p>
             </div>
             <Button
@@ -114,22 +93,7 @@ function MultiplayerLobby() {
                 <PlusCircle className="h-4 w-4" />
                 Создать комнату
               </span>
-              <span className="text-xs font-normal opacity-90">
-                Название, цвет и код для друга
-              </span>
-            </Button>
-            <Button
-              variant="secondary"
-              className="h-auto w-full flex-col items-start gap-1 py-4 text-left"
-              onClick={() => setStep("join")}
-            >
-              <span className="flex items-center gap-2 font-semibold">
-                <DoorOpen className="h-4 w-4" />
-                Войти по коду
-              </span>
-              <span className="text-xs font-normal text-muted-foreground">
-                Введите код, который прислал друг
-              </span>
+              <span className="text-xs font-normal opacity-90">Выберите цвет и пригласите друга ссылкой</span>
             </Button>
           </div>
         )}
@@ -167,67 +131,9 @@ function MultiplayerLobby() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="ghost" className="flex-1" onClick={() => setStep("menu")}>
-                Назад
-              </Button>
+              <Button variant="ghost" className="flex-1" onClick={() => setStep("menu")}>Назад</Button>
               <Button className="flex-1" disabled={loading} onClick={() => void handleCreate()}>
-                Создать
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {step === "created" && (
-          <div className="glass space-y-4 rounded-2xl p-6 text-center">
-            <h2 className="text-xl font-semibold">Комната готова</h2>
-            <p className="text-sm text-muted-foreground">
-              Сообщите другу название и код. Он должен войти через Google → «Войти по коду».
-            </p>
-            <div className="rounded-xl bg-muted/40 py-6">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Код комнаты</p>
-              <p className="mt-2 font-mono text-4xl font-bold tracking-[0.3em]">{createdCode}</p>
-            </div>
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => {
-                navigator.clipboard.writeText(createdCode);
-                toast.success("Код скопирован");
-              }}
-            >
-              Скопировать код
-            </Button>
-            <Button className="w-full" onClick={enterCreatedRoom}>
-              Войти в игру
-            </Button>
-            <p className="text-xs text-muted-foreground">Ожидаем соперника в комнате…</p>
-          </div>
-        )}
-
-        {step === "join" && (
-          <div className="glass space-y-4 rounded-2xl p-6">
-            <h2 className="text-xl font-semibold">Войти по коду</h2>
-            <div className="space-y-2">
-              <Label htmlFor="room-code">Код комнаты</Label>
-              <Input
-                id="room-code"
-                placeholder="ABC123"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                className="font-mono text-center text-lg tracking-widest"
-                maxLength={6}
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button variant="ghost" className="flex-1" onClick={() => setStep("menu")}>
-                Назад
-              </Button>
-              <Button
-                className="flex-1"
-                disabled={loading || joinCode.length < 4}
-                onClick={() => void handleJoin()}
-              >
-                Войти
+                Пригласить
               </Button>
             </div>
           </div>

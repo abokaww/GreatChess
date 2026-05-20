@@ -6,12 +6,15 @@ export type Room = {
   name: string;
   host_id: string;
   guest_id: string | null;
+  host_color: "white" | "black";
   status: "waiting" | "playing" | "finished";
-  game_state: any;
+  game_state: { fen: string; pgn: string };
   current_turn: "white" | "black" | null;
   created_at?: string;
   updated_at?: string;
 };
+
+const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 function generateCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -20,10 +23,13 @@ function generateCode(): string {
   return code;
 }
 
-export async function createRoom(name: string): Promise<{ ok: true; room: Room } | { ok: false; error: string }> {
+export async function createRoom(
+  name: string,
+  hostColor: "white" | "black",
+): Promise<{ ok: true; room: Room } | { ok: false; error: string }> {
   const u = await supabase.auth.getUser();
   const userId = u.data.user?.id;
-  if (!userId) return { ok: false, error: "Not authenticated" };
+  if (!userId) return { ok: false, error: "Не авторизованы" };
 
   const trimmedName = (name || "").trim().slice(0, 80) || "Партия с другом";
 
@@ -32,47 +38,56 @@ export async function createRoom(name: string): Promise<{ ok: true; room: Room }
     const id = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `room-${Date.now()}`;
     const { data, error } = await supabase
       .from("rooms")
-      .insert({ id, code, name: trimmedName, host_id: userId, guest_id: null, status: "waiting", game_state: {}, current_turn: null })
+      .insert({
+        id,
+        code,
+        name: trimmedName,
+        host_id: userId,
+        guest_id: null,
+        host_color: hostColor,
+        status: "waiting",
+        game_state: { fen: START_FEN, pgn: "" },
+        current_turn: "white",
+      })
       .select()
       .single();
 
     if (error) {
-      // unique violation on code — try again
       if ((error as any).code === "23505") continue;
-      return { ok: false, error: error.message ?? "Failed to create room" };
+      return { ok: false, error: error.message ?? "Не удалось создать комнату" };
     }
 
     return { ok: true, room: data as Room };
   }
 
-  return { ok: false, error: "Failed to generate unique room code" };
+  return { ok: false, error: "Не удалось сгенерировать уникальный код" };
 }
 
-export async function joinRoom(codeInput: string): Promise<{ ok: true; room: Room } | { ok: false; reason: string; message?: string }> {
-  const code = (codeInput || "").trim().toUpperCase();
-  if (code.length !== 6) return { ok: false, reason: "not_found", message: "Введите код комнаты" };
+export async function getRoomById(roomId: string): Promise<Room | null> {
+  const { data, error } = await supabase.from("rooms").select("*").eq("id", roomId).maybeSingle();
+  if (error) return null;
+  return data as Room | null;
+}
 
+export async function joinRoomById(
+  roomId: string,
+): Promise<{ ok: true; room: Room } | { ok: false; reason: string; message?: string }> {
   const u = await supabase.auth.getUser();
   const userId = u.data.user?.id;
   if (!userId) return { ok: false, reason: "auth", message: "Не авторизованы" };
 
-  const existing = await supabase.from("rooms").select("*").eq("code", code).maybeSingle();
+  const existing = await supabase.from("rooms").select("*").eq("id", roomId).maybeSingle();
   const room = existing.data as Room | null;
-  if (!room) return { ok: false, reason: "not_found", message: "Комната с таким кодом не найдена" };
+  if (!room) return { ok: false, reason: "not_found", message: "Комната не найдена" };
 
-  if (room.host_id === userId) return { ok: false, reason: "own_room", message: "Это ваша комната — нажмите «Войти в игру»" };
+  if (room.host_id === userId) return { ok: true, room };
 
-  // Allow re-joining if the guest is the same user.
-  // Consider the room occupied only if guest_id exists and it's not the current user.
   if (room.guest_id && room.guest_id !== userId) {
     return { ok: false, reason: "full", message: "Комната уже занята другим игроком" };
   }
 
-  if (room.guest_id === userId) {
-    return { ok: true, room };
-  }
+  if (room.guest_id === userId) return { ok: true, room };
 
-  // Try to atomically set guest_id if it's still empty
   const { data: updated, error } = await supabase
     .from("rooms")
     .update({ guest_id: userId, status: "playing" })
@@ -98,7 +113,6 @@ export function subscribeToRoom(id: string, callback: (room: Room | null) => voi
       },
     )
     .subscribe((status) => {
-      // on subscribe, fetch initial value
       if (status === "SUBSCRIBED") {
         void (async () => {
           const res = await supabase.from("rooms").select("*").eq("id", id).maybeSingle();
@@ -119,4 +133,3 @@ export function subscribeToRoom(id: string, callback: (room: Room | null) => voi
 export async function updateGameState(id: string, state: any, turn: "white" | "black" | null) {
   await supabase.from("rooms").update({ game_state: state, current_turn: turn }).eq("id", id);
 }
-
