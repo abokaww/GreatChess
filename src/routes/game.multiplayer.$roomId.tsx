@@ -5,13 +5,7 @@ import { ChessGame } from "@/components/ChessGame";
 import { useAuth } from "@/hooks/use-auth";
 import { lovable } from "@/integrations/auth/index";
 import { fetchSavedGamesForUser } from "@/lib/game-repository";
-import {
-  getPlayerColor,
-  getRoomById,
-  getWhiteBlackUserIds,
-  isRoomReady,
-  type RoomRecord,
-} from "@/lib/rooms";
+import { subscribeToRoom } from "@/lib/rooms";
 import type { StoredGame } from "@/lib/game-storage";
 import { Loader2, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,17 +18,17 @@ function GameMultiplayerRoom() {
   const { roomId } = Route.useParams();
   const { user, reloadProfile } = useAuth();
   const navigate = useNavigate();
-  const [room, setRoom] = useState<RoomRecord | null>(null);
+  const [room, setRoom] = useState<any | null>(null);
   const [playerColor, setPlayerColor] = useState<"white" | "black" | null>(null);
   const [resumeGame, setResumeGame] = useState<StoredGame | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const applyRoom = useCallback(
-    (r: RoomRecord) => {
+    (r: any) => {
       setRoom(r);
-      if (user) {
-        const color = getPlayerColor(r, user.id);
+      if (user && r) {
+        const color = r.host_id === user.id ? "white" : "black";
         setPlayerColor(color);
       }
     },
@@ -47,67 +41,38 @@ function GameMultiplayerRoom() {
       return;
     }
 
-    let cancelled = false;
-
-    async function load() {
-      const r = await getRoomById(roomId);
-      if (cancelled) return;
-
+    // subscribe via realtime; subscribeToRoom will fetch initial value on SUBSCRIBED
+    setLoading(true);
+    const unsub = subscribeToRoom(roomId, (r) => {
       if (!r) {
         setError("Комната не найдена");
         setLoading(false);
         return;
       }
-
-      const color = getPlayerColor(r, user.id);
-      if (!color) {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      // ensure user is participant
+      if (r.host_id !== user.id && r.guest_id !== user.id) {
         setError("Вы не участник этой комнаты");
         setLoading(false);
         return;
       }
-
       applyRoom(r);
-      setPlayerColor(color);
-
-      const games = await fetchSavedGamesForUser(user.id);
-      const match = games.find((g) => g.roomId === roomId && !g.finished) ?? null;
-      if (match) {
-        setResumeGame(match);
-      } else if (r.pgn && r.fen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") {
-        setResumeGame({
-          id: crypto.randomUUID(),
-          mode: "multiplayer",
-          title: `Онлайн: ${r.name}`,
-          roomId: r.id,
-          updatedAt: Date.now(),
-          fen: r.fen,
-          pgn: r.pgn,
-          playerColor: color,
-          boardTheme: "default",
-          pieceTheme: "default",
-          finished: false,
-        });
-      }
-
       setLoading(false);
-    }
+    });
 
-    void load();
     return () => {
-      cancelled = true;
+      try {
+        unsub();
+      } catch (e) {
+        // ignore
+      }
     };
   }, [roomId, user, applyRoom]);
 
-  useEffect(() => {
-    if (!user || !room || isRoomReady(room)) return;
-
-    const poll = setInterval(async () => {
-      const fresh = await getRoomById(roomId);
-      if (fresh) applyRoom(fresh);
-    }, 2000);
-
-    return () => clearInterval(poll);
-  }, [roomId, user, room, applyRoom]);
+  // no polling: realtime subscription keeps room in sync
 
   if (!user) {
     return (
@@ -160,9 +125,10 @@ function GameMultiplayerRoom() {
     );
   }
 
-  const { whiteUserId, blackUserId } = getWhiteBlackUserIds(room);
-  const opponentReady = isRoomReady(room);
-  const isHost = room.host_user_id === user.id;
+  const whiteUserId = room?.host_id ?? null;
+  const blackUserId = room?.guest_id ?? null;
+  const opponentReady = Boolean(room?.guest_id && room?.guest_id !== room?.host_id);
+  const isHost = room?.host_id === user.id;
 
   return (
     <div className="min-h-screen">
@@ -193,9 +159,8 @@ function GameMultiplayerRoom() {
             mode="multiplayer"
             roomId={room.id}
             roomName={room.name}
-            roomHostUserId={room.host_user_id}
-            roomGuestUserId={room.guest_user_id}
-            roomHostColor={room.host_color}
+            roomHostUserId={room.host_id}
+            roomGuestUserId={room.guest_id}
             playerColor={playerColor}
             whiteUserId={whiteUserId}
             blackUserId={blackUserId}
@@ -203,6 +168,7 @@ function GameMultiplayerRoom() {
             onEloApplied={reloadProfile}
             resumeGame={resumeGame}
             multiplayerReady={opponentReady}
+            currentTurn={room.current_turn}
           />
         </div>
       </main>

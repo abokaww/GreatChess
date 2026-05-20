@@ -1,166 +1,115 @@
 import { supabase } from "@/integrations/supabase/client";
 
-export type RoomColor = "white" | "black";
-
-export type RoomRecord = {
+export type Room = {
   id: string;
   code: string;
   name: string;
-  host_user_id: string;
-  guest_user_id: string | null;
-  host_color: RoomColor;
-  fen: string;
-  pgn: string;
-  status: "waiting" | "active" | "finished";
+  host_id: string;
+  guest_id: string | null;
+  status: "waiting" | "playing" | "finished";
+  game_state: any;
+  current_turn: "white" | "black" | null;
+  created_at?: string;
+  updated_at?: string;
 };
-
-const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
-function guestColor(hostColor: RoomColor): RoomColor {
-  return hostColor === "white" ? "black" : "white";
-}
 
 function generateCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
 }
 
-export function getPlayerColor(room: RoomRecord, userId: string): RoomColor | null {
-  if (room.host_user_id === userId) return room.host_color;
-  if (room.guest_user_id === userId) return guestColor(room.host_color);
-  return null;
-}
+export async function createRoom(name: string): Promise<{ ok: true; room: Room } | { ok: false; error: string }> {
+  const u = await supabase.auth.getUser();
+  const userId = u.data.user?.id;
+  if (!userId) return { ok: false, error: "Not authenticated" };
 
-export function getWhiteBlackUserIds(room: RoomRecord): {
-  whiteUserId: string | null;
-  blackUserId: string | null;
-} {
-  if (room.host_color === "white") {
-    return {
-      whiteUserId: room.host_user_id,
-      blackUserId: room.guest_user_id,
-    };
-  }
-  return {
-    whiteUserId: room.guest_user_id,
-    blackUserId: room.host_user_id,
-  };
-}
-
-export function isRoomReady(room: RoomRecord): boolean {
-  return Boolean(room.guest_user_id && room.guest_user_id !== room.host_user_id);
-}
-
-export async function createRoom(
-  hostUserId: string,
-  name: string,
-  hostColor: RoomColor,
-): Promise<{ ok: true; room: RoomRecord } | { ok: false; error: string }> {
-  const trimmedName = name.trim().slice(0, 40) || "Партия с другом";
+  const trimmedName = (name || "").trim().slice(0, 80) || "Партия с другом";
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateCode();
+    const id = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `room-${Date.now()}`;
     const { data, error } = await supabase
       .from("rooms")
-      .insert({
-        code,
-        name: trimmedName,
-        host_user_id: hostUserId,
-        guest_user_id: null,
-        host_color: hostColor,
-        fen: START_FEN,
-        pgn: "",
-        status: "waiting",
-      })
+      .insert({ id, code, name: trimmedName, host_id: userId, guest_id: null, status: "waiting", game_state: {}, current_turn: null })
       .select()
       .single();
 
-    if (!error && data) {
-      return { ok: true, room: data as RoomRecord };
+    if (error) {
+      // unique violation on code — try again
+      if ((error as any).code === "23505") continue;
+      return { ok: false, error: error.message ?? "Failed to create room" };
     }
-    if (error?.code !== "23505") {
-      return { ok: false, error: error?.message ?? "Не удалось создать комнату" };
-    }
+
+    return { ok: true, room: data as Room };
   }
 
-  return { ok: false, error: "Не удалось сгенерировать уникальный код" };
+  return { ok: false, error: "Failed to generate unique room code" };
 }
 
-export async function getRoomById(roomId: string): Promise<RoomRecord | null> {
-  const { data, error } = await supabase.from("rooms").select("*").eq("id", roomId).maybeSingle();
-  if (error || !data) return null;
-  return data as RoomRecord;
-}
+export async function joinRoom(codeInput: string): Promise<{ ok: true; room: Room } | { ok: false; reason: string; message?: string }> {
+  const code = (codeInput || "").trim().toUpperCase();
+  if (code.length !== 6) return { ok: false, reason: "not_found", message: "Введите код комнаты" };
 
-export async function joinRoomByCode(
-  userId: string,
-  rawCode: string,
-): Promise<
-  | { ok: true; room: RoomRecord; color: RoomColor }
-  | { ok: false; reason: "not_found" | "full" | "own_room" | "error"; message?: string }
-> {
-  const code = rawCode.trim().toUpperCase();
-  if (code.length < 4) {
-    return { ok: false, reason: "not_found", message: "Введите код комнаты" };
-  }
+  const u = await supabase.auth.getUser();
+  const userId = u.data.user?.id;
+  if (!userId) return { ok: false, reason: "auth", message: "Не авторизованы" };
 
-  const existing = await supabase
-    .from("rooms")
-    .select("*")
-    .eq("code", code)
-    .maybeSingle();
-
-  const room = existing.data as RoomRecord | null;
+  const existing = await supabase.from("rooms").select("*").eq("code", code).maybeSingle();
+  const room = existing.data as Room | null;
   if (!room) return { ok: false, reason: "not_found", message: "Комната с таким кодом не найдена" };
 
-  if (room.host_user_id === userId) {
-    return { ok: false, reason: "own_room", message: "Это ваша комната — нажмите «Войти в игру»" };
-  }
+  if (room.host_id === userId) return { ok: false, reason: "own_room", message: "Это ваша комната — нажмите «Войти в игру»" };
 
-  if (room.guest_user_id === userId) {
-    return { ok: true, room, color: guestColor(room.host_color) };
-  }
+  if (room.guest_id === userId) return { ok: true, room };
 
-  if (room.guest_user_id) {
-    return { ok: false, reason: "full", message: "Комната уже занята другим игроком" };
-  }
+  if (room.guest_id) return { ok: false, reason: "full", message: "Комната уже занята другим игроком" };
 
   const { data: updated, error } = await supabase
     .from("rooms")
-    .update({ guest_user_id: userId, status: "active" })
+    .update({ guest_id: userId, status: "playing" })
     .eq("id", room.id)
-    .is("guest_user_id", null)
+    .is("guest_id", null)
     .select()
     .maybeSingle();
 
-  if (error) {
-    return { ok: false, reason: "error", message: error.message };
-  }
+  if (error) return { ok: false, reason: "error", message: error.message };
+  if (!updated) return { ok: false, reason: "full", message: "Комната уже занята" };
 
-  if (!updated) {
-    return { ok: false, reason: "full", message: "Комната уже занята" };
-  }
+  return { ok: true, room: updated as Room };
+}
 
-  return {
-    ok: true,
-    room: updated as RoomRecord,
-    color: guestColor(room.host_color),
+export function subscribeToRoom(id: string, callback: (room: Room | null) => void) {
+  const ch = supabase
+    .channel(`public:rooms:${id}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "rooms", filter: `id=eq.${id}` },
+      (payload) => {
+        callback(payload.new as Room);
+      },
+    )
+    .subscribe((status) => {
+      // on subscribe, fetch initial value
+      if (status === "SUBSCRIBED") {
+        void (async () => {
+          const res = await supabase.from("rooms").select("*").eq("id", id).maybeSingle();
+          callback(res.data as Room | null);
+        })();
+      }
+    });
+
+  return () => {
+    try {
+      supabase.removeChannel(ch);
+    } catch (e) {
+      // ignore
+    }
   };
 }
 
-export async function updateRoomPosition(
-  roomId: string,
-  fen: string,
-  pgn: string,
-  status: RoomRecord["status"] = "active",
-): Promise<void> {
-  await supabase.from("rooms").update({ fen, pgn, status }).eq("id", roomId);
+export async function updateGameState(id: string, state: any, turn: "white" | "black" | null) {
+  await supabase.from("rooms").update({ game_state: state, current_turn: turn }).eq("id", id);
 }
 
-export async function finishRoom(roomId: string, fen: string, pgn: string): Promise<void> {
-  await supabase.from("rooms").update({ fen, pgn, status: "finished" }).eq("id", roomId);
-}

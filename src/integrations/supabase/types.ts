@@ -19,12 +19,11 @@ export type Database = {
           id: string
           code: string
           name: string
-          host_user_id: string
-          guest_user_id: string | null
-          host_color: string
-          fen: string
-          pgn: string
+          host_id: string
+          guest_id: string | null
           status: string
+          game_state: Json
+          current_turn: string | null
           created_at: string
           updated_at: string
         }
@@ -32,12 +31,11 @@ export type Database = {
           id?: string
           code: string
           name: string
-          host_user_id: string
-          guest_user_id?: string | null
-          host_color: string
-          fen?: string
-          pgn?: string
+          host_id: string
+          guest_id?: string | null
           status?: string
+          game_state?: Json
+          current_turn?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -45,12 +43,11 @@ export type Database = {
           id?: string
           code?: string
           name?: string
-          host_user_id?: string
-          guest_user_id?: string | null
-          host_color?: string
-          fen?: string
-          pgn?: string
+          host_id?: string
+          guest_id?: string | null
           status?: string
+          game_state?: Json
+          current_turn?: string | null
           created_at?: string
           updated_at?: string
         }

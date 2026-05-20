@@ -20,7 +20,7 @@ import {
   persistGame,
   persistMultiplayerForBoth,
 } from "@/lib/game-repository";
-import { finishRoom, getRoomById, updateRoomPosition } from "@/lib/rooms";
+import { updateGameState } from "@/lib/rooms";
 import { useAuth } from "@/hooks/use-auth";
 import { getBoardTheme } from "@/lib/visual-themes";
 import type { ParsedResult } from "@/lib/elo";
@@ -49,6 +49,7 @@ type Props = {
   resumeGame?: StoredGame | null;
   /** В мультиплеере — оба игрока в комнате (можно ходить по очереди). */
   multiplayerReady?: boolean;
+  currentTurn?: "white" | "black" | null;
 };
 
 export function ChessGame({
@@ -65,6 +66,7 @@ export function ChessGame({
   onEloApplied,
   resumeGame = null,
   multiplayerReady = true,
+  currentTurn = null,
 }: Props) {
   const { user } = useAuth();
   const gameRef = useRef(new Chess());
@@ -227,7 +229,10 @@ export function ChessGame({
     if (mode !== "multiplayer" || !roomId) return;
     if (roomSyncRef.current) clearTimeout(roomSyncRef.current);
     roomSyncRef.current = setTimeout(() => {
-      void updateRoomPosition(roomId, gameRef.current.fen(), gameRef.current.pgn());
+      const fen = gameRef.current.fen();
+      const pgn = gameRef.current.pgn();
+      const turn = gameRef.current.turn() === "w" ? "white" : "black";
+      void updateGameState(roomId, { fen, pgn }, turn);
     }, 400);
   }, [mode, roomId]);
 
@@ -299,7 +304,10 @@ export function ChessGame({
   useEffect(() => {
     if (gameOver) {
       if (mode === "multiplayer" && roomId) {
-        void finishRoom(roomId, gameRef.current.fen(), gameRef.current.pgn());
+        const fen = gameRef.current.fen();
+        const pgn = gameRef.current.pgn();
+        // mark finished in game_state; clear current_turn
+        void updateGameState(roomId, { fen, pgn, finished: true }, null);
       }
       saveCurrentGame(true);
     }
@@ -413,10 +421,12 @@ export function ChessGame({
     if (mode !== "multiplayer" || !roomId || !multiplayerReady) return;
 
     const syncFromDb = async () => {
-      const room = await getRoomById(roomId);
-      if (!room?.fen || remoteUpdateRef.current) return;
-      if (room.fen !== gameRef.current.fen()) {
-        applyRemoteFen(room.fen);
+      const res = await supabase.from("rooms").select("game_state").eq("id", roomId).maybeSingle();
+      const roomRec = res.data as any | null;
+      if (!roomRec?.game_state || remoteUpdateRef.current) return;
+      const remoteFen = roomRec.game_state.fen;
+      if (remoteFen && remoteFen !== gameRef.current.fen()) {
+        applyRemoteFen(remoteFen);
       }
     };
 
@@ -485,7 +495,8 @@ export function ChessGame({
         toast.error("Дождитесь подключения соперника");
         return false;
       }
-      if (turnColor !== playerColor) {
+      // Only allow moving when server-side `currentTurn` matches player's color
+      if (currentTurn && currentTurn !== playerColor) {
         toast.error("Сейчас ход соперника");
         return false;
       }
@@ -497,7 +508,7 @@ export function ChessGame({
     }
 
     return true;
-  }, [gameOver, mode, multiplayerReady, playerColor, humanColor]);
+  }, [gameOver, mode, multiplayerReady, playerColor, humanColor, currentTurn]);
 
   const applyMove = useCallback(
     (from: string, to: string): boolean => {

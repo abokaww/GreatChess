@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { lovable } from "@/integrations/auth/index";
-import { createRoom, joinRoomByCode } from "@/lib/rooms";
+import { createRoom, joinRoom } from "@/lib/rooms";
 import { ChevronLeft, Crown, DoorOpen, PlusCircle, Users } from "lucide-react";
 import { toast } from "sonner";
 
@@ -60,7 +60,7 @@ function MultiplayerLobby() {
 
   const handleCreate = async () => {
     setLoading(true);
-    const result = await createRoom(user.id, roomName, hostColor);
+    const result = await createRoom(roomName);
     setLoading(false);
     if (!result.ok) {
       toast.error(result.error);
@@ -74,10 +74,10 @@ function MultiplayerLobby() {
 
   const handleJoin = async () => {
     setLoading(true);
-    const result = await joinRoomByCode(user.id, joinCode);
+    const result = await joinRoom(joinCode);
     setLoading(false);
     if (!result.ok) {
-      toast.error(result.message ?? "Не удалось войти");
+      toast.error(result.message ?? result.reason ?? "Не удалось войти");
       return;
     }
     navigate({
