@@ -11,12 +11,18 @@ import { Button } from "@/components/ui/button";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 
+type RoomSearch = { hc?: "white" | "black" };
+
 export const Route = createFileRoute("/game/multiplayer/$roomId")({
+  validateSearch: (search: Record<string, unknown>): RoomSearch => ({
+    hc: search.hc === "black" ? "black" : search.hc === "white" ? "white" : undefined,
+  }),
   component: GameMultiplayer,
 });
 
 function GameMultiplayer() {
   const { roomId } = Route.useParams();
+  const { hc: hostColorFromLink } = Route.useSearch();
   const { user, reloadProfile } = useAuth();
   const navigate = useNavigate();
   const [playerColor, setPlayerColor] = useState<"white" | "black" | null>(null);
@@ -124,8 +130,10 @@ function GameMultiplayer() {
   }, [roomId, playerColor, opponentReady, applyRoomPlayers]);
 
   const copyInvite = () => {
-    const url = new URL(`/game/multiplayer/${roomId}`, window.location.origin).toString();
-    navigator.clipboard.writeText(url);
+    const url = new URL(`/game/multiplayer/${roomId}`, window.location.origin);
+    if (roomState?.host_color) url.searchParams.set("hc", roomState.host_color);
+    else if (hostColorFromLink) url.searchParams.set("hc", hostColorFromLink);
+    navigator.clipboard.writeText(url.toString());
     toast.success("Ссылка скопирована!");
   };
 

@@ -36,10 +36,14 @@ function Matches() {
     };
   }, [user?.id]);
 
-  const handleDelete = (id: string) => {
-    void deleteGameForUser(id, user?.id);
+  const handleDelete = async (id: string) => {
+    const result = await deleteGameForUser(id, user?.id);
+    if (!result.ok) {
+      toast.error(result.error ?? "Не удалось удалить из облака");
+      return;
+    }
     setGames((current) => current.filter((game) => game.id !== id));
-    toast.success("Сохранение удалено");
+    toast.success("Партия удалена");
   };
 
   return (

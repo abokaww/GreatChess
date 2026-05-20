@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Chess } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { applyOnlineEloForCurrentPlayer } from "@/lib/elo-update";
 import { loadVisualPreferences, StoredGame } from "@/lib/game-storage";
 import { deleteGameForUser, loadLatestOngoingGame, persistGame } from "@/lib/game-repository";
-import { finishRoom, getRoom, updateRoomPosition } from "@/lib/rooms";
+import { finishRoom, getRoom, getRoomMetaFromSession, updateRoomPosition } from "@/lib/rooms";
 import { useAuth } from "@/hooks/use-auth";
 import { getBoardTheme } from "@/lib/visual-themes";
 import type { ParsedResult } from "@/lib/elo";
@@ -576,8 +576,10 @@ export function ChessGame({
 
   const copyInvite = () => {
     if (!roomId) return;
-    const url = new URL(`/game/multiplayer/${roomId}`, window.location.origin).toString();
-    navigator.clipboard.writeText(url);
+    const url = new URL(`/game/multiplayer/${roomId}`, window.location.origin);
+    const meta = getRoomMetaFromSession(roomId);
+    if (meta) url.searchParams.set("hc", meta.hostColor);
+    navigator.clipboard.writeText(url.toString());
     toast.success("Ссылка скопирована!");
   };
 
@@ -591,19 +593,17 @@ export function ChessGame({
       : "white";
 
   const customSquareStyles = useMemo(() => {
-    const styles: Record<string, any> = {};
+    const styles: Record<string, CSSProperties> = {};
     if (selectedSquare) {
       styles[selectedSquare] = {
-        backgroundColor: "rgba(59, 130, 246, 0.24)",
-        boxShadow: "inset 0 0 0 2px rgba(59, 130, 246, 0.7)",
+        backgroundColor: "rgba(120, 113, 108, 0.22)",
+        boxShadow: "inset 0 0 0 2px rgba(168, 162, 158, 0.45)",
       };
     }
     legalDestinations.forEach((square) => {
       styles[square] = {
-        backgroundColor: "rgba(59, 130, 246, 0.08)",
-        backgroundImage: "radial-gradient(circle at center, rgba(59, 130, 246, 0.75) 15%, rgba(59, 130, 246, 0.0) 18%)",
-        borderRadius: "50%",
-        boxShadow: "inset 0 0 0 1px rgba(59, 130, 246, 0.35)",
+        backgroundImage:
+          "radial-gradient(circle at center, rgba(168, 162, 158, 0.55) 22%, transparent 24%)",
       };
     });
     return styles;

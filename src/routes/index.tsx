@@ -109,7 +109,11 @@ function Index() {
       toast.error(created.error || "Не удалось создать комнату");
       return;
     }
-    navigate({ to: "/game/multiplayer/$roomId", params: { roomId } });
+    navigate({
+      to: "/game/multiplayer/$roomId",
+      params: { roomId },
+      search: { hc: hostColor },
+    });
   };
 
   const handleViewMatches = () => {
