@@ -68,8 +68,9 @@ function MultiplayerLobby() {
     }
     setCreatedCode(result.room.code);
     setCreatedRoomId(result.room.id);
-    setStep("created");
-    toast.success("Комната создана! Сообщите другу код.");
+    toast.success("Комната создана! Перенаправляю в комнату...");
+    // Перенаправить хоста сразу в комнату, чтобы он видел доску и ожидал соперника
+    navigate({ to: "/game/multiplayer/$roomId", params: { roomId: result.room.id } });
   };
 
   const handleJoin = async () => {

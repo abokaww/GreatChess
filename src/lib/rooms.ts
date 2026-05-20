@@ -62,10 +62,17 @@ export async function joinRoom(codeInput: string): Promise<{ ok: true; room: Roo
 
   if (room.host_id === userId) return { ok: false, reason: "own_room", message: "Это ваша комната — нажмите «Войти в игру»" };
 
-  if (room.guest_id === userId) return { ok: true, room };
+  // Allow re-joining if the guest is the same user.
+  // Consider the room occupied only if guest_id exists and it's not the current user.
+  if (room.guest_id && room.guest_id !== userId) {
+    return { ok: false, reason: "full", message: "Комната уже занята другим игроком" };
+  }
 
-  if (room.guest_id) return { ok: false, reason: "full", message: "Комната уже занята другим игроком" };
+  if (room.guest_id === userId) {
+    return { ok: true, room };
+  }
 
+  // Try to atomically set guest_id if it's still empty
   const { data: updated, error } = await supabase
     .from("rooms")
     .update({ guest_id: userId, status: "playing" })

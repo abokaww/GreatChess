@@ -127,7 +127,8 @@ function GameMultiplayerRoom() {
 
   const whiteUserId = room?.host_id ?? null;
   const blackUserId = room?.guest_id ?? null;
-  const opponentReady = Boolean(room?.guest_id && room?.guest_id !== room?.host_id);
+  // Consider opponent ready when status === 'playing'
+  const opponentReady = room?.status === "playing";
   const isHost = room?.host_id === user.id;
 
   return (
