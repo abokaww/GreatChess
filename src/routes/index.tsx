@@ -190,7 +190,7 @@ function Index() {
             <DashCard
               icon={Users}
               title="Играть с другом"
-              desc="Локально или онлайн по ссылке"
+              desc="Локально"
               onClick={() => setFriendOpen(true)}
             />
             <DashCard
