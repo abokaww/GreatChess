@@ -1,5 +1,5 @@
 [build]
-  command = "npm run build"
+  command = "npm run build && node scripts/generate-netlify-index.cjs"
   publish = "dist"
 
 [[redirects]]
