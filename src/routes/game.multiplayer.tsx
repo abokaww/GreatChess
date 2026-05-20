@@ -70,7 +70,7 @@ function MultiplayerLobby() {
     setCreatedRoomId(result.room.id);
     toast.success("Комната создана! Перенаправляю в комнату...");
     // Перенаправить хоста сразу в комнату, чтобы он видел доску и ожидал соперника
-    navigate({ to: "/game/multiplayer/$roomId", params: { roomId: result.room.id } });
+    navigate({ to: `/game/multiplayer/${result.room.id}` });
   };
 
   const handleJoin = async () => {
@@ -81,18 +81,12 @@ function MultiplayerLobby() {
       toast.error(result.message ?? result.reason ?? "Не удалось войти");
       return;
     }
-    navigate({
-      to: "/game/multiplayer/$roomId",
-      params: { roomId: result.room.id },
-    });
+    navigate({ to: `/game/multiplayer/${result.room.id}` });
   };
 
   const enterCreatedRoom = () => {
     if (!createdRoomId) return;
-    navigate({
-      to: "/game/multiplayer/$roomId",
-      params: { roomId: createdRoomId },
-    });
+    navigate({ to: `/game/multiplayer/${createdRoomId}` });
   };
 
   return (
