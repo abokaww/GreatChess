@@ -10,9 +10,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { GameCoachPanel } from "@/components/GameCoachPanel";
+import type { CoachAnalysisScope } from "@/lib/gemini-coach";
 import { supabase } from "@/integrations/supabase/client";
 import { applyOnlineEloForCurrentPlayer } from "@/lib/elo-update";
-import { getSavedGame, loadLatestSavedGame, loadVisualPreferences, removeSavedGame, saveGame, StoredGame } from "@/lib/game-storage";
+import { loadVisualPreferences, StoredGame } from "@/lib/game-storage";
+import { deleteGameForUser, loadLatestOngoingGame, persistGame } from "@/lib/game-repository";
+import { finishRoom, updateRoomPosition } from "@/lib/rooms";
+import { useAuth } from "@/hooks/use-auth";
 import { getBoardTheme } from "@/lib/visual-themes";
 import type { ParsedResult } from "@/lib/elo";
 import { Bot, RotateCcw, Users, Copy, Flag, Trophy } from "lucide-react";
@@ -46,13 +50,16 @@ export function ChessGame({
   onEloApplied,
   resumeGame = null,
 }: Props) {
+  const { user } = useAuth();
   const gameRef = useRef(new Chess());
+  const roomSyncRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fen, setFen] = useState(gameRef.current.fen());
   const [status, setStatus] = useState("Ход белых");
   const [gameOver, setGameOver] = useState<GameOverState | null>(null);
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [humanColor, setHumanColor] = useState<"white" | "black">(playerColor);
+  const [aiColorConfirmed, setAiColorConfirmed] = useState(mode === "ai" ? false : true);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [legalDestinations, setLegalDestinations] = useState<string[]>([]);
   const [boardOrientation, setBoardOrientation] = useState<"white" | "black">("white");
@@ -141,39 +148,71 @@ export function ChessGame({
   const saveCurrentGame = useCallback(
     (finished = false) => {
       if (typeof window === "undefined") return;
-      if (mode !== "ai" && mode !== "local") return;
-      saveGame({
+      const game: StoredGame = {
         id: gameId,
         mode,
-        title: mode === "ai" ? `ИИ: ${humanColor === "white" ? "белыми" : "чёрными"}` : "Локальная игра",
+        roomId: roomId ?? undefined,
+        title:
+          mode === "ai"
+            ? `ИИ: ${humanColor === "white" ? "белыми" : "чёрными"}`
+            : mode === "local"
+            ? "Локальная игра"
+            : `Онлайн: ${roomId ?? "комната"}`,
         updatedAt: Date.now(),
         fen: gameRef.current.fen(),
         pgn: gameRef.current.pgn(),
         humanColor: mode === "ai" ? humanColor : undefined,
-        playerColor: mode === "local" ? playerColor : undefined,
+        playerColor: mode === "local" || mode === "multiplayer" ? playerColor : undefined,
         boardTheme: boardThemeKey,
         pieceTheme: pieceThemeKey,
         finished,
-      });
+      };
+      void persistGame(game, user?.id);
     },
-    [boardThemeKey, humanColor, mode, gameId, pieceThemeKey, playerColor],
+    [boardThemeKey, humanColor, mode, gameId, pieceThemeKey, playerColor, roomId, user?.id],
   );
+
+  const syncRoomPosition = useCallback(() => {
+    if (mode !== "multiplayer" || !roomId) return;
+    if (roomSyncRef.current) clearTimeout(roomSyncRef.current);
+    roomSyncRef.current = setTimeout(() => {
+      void updateRoomPosition(roomId, gameRef.current.fen(), gameRef.current.pgn());
+    }, 400);
+  }, [mode, roomId]);
 
   const clearSavedGame = useCallback(() => {
     if (typeof window === "undefined") return;
-    if (mode !== "ai" && mode !== "local") return;
-    removeSavedGame(gameId);
-  }, [gameId, mode]);
+    void deleteGameForUser(gameId, user?.id);
+  }, [gameId, user?.id]);
 
   useEffect(() => {
-    if (mode === "ai" || mode === "local") {
-      const saved = resumeGame?.id ? resumeGame : loadLatestSavedGame(mode);
+    let cancelled = false;
+
+    async function restore() {
+      if (mode !== "ai" && mode !== "local" && mode !== "multiplayer") {
+        loadThemeSettings();
+        return;
+      }
+
+      const saved =
+        resumeGame ??
+        (mode === "multiplayer"
+          ? null
+          : await loadLatestOngoingGame(mode, user?.id ?? null));
+
+      if (cancelled) return;
+
       if (saved && !saved.finished) {
         const loaded = new Chess();
-        loaded.loadPgn(saved.pgn);
+        try {
+          loaded.loadPgn(saved.pgn);
+        } catch {
+          loaded.load(saved.fen);
+        }
         gameRef.current = loaded;
         setFen(saved.fen);
         setHumanColor(saved.humanColor ?? playerColor);
+        if (mode === "ai") setAiColorConfirmed(true);
         setBoardThemeKey(saved.boardTheme ?? "default");
         setPieceThemeKey(saved.pieceTheme ?? "default");
         setGameId(saved.id);
@@ -181,22 +220,39 @@ export function ChessGame({
         setMoveHistory(loaded.history());
         return;
       }
+
+      loadThemeSettings();
     }
 
-    loadThemeSettings();
-  }, [loadThemeSettings, mode, playerColor, resumeGame]);
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadThemeSettings, mode, playerColor, resumeGame, user?.id]);
 
   useEffect(() => {
-    if (!gameOver && (mode === "ai" || mode === "local")) {
+    if (!gameOver && mode === "local") {
       saveCurrentGame(false);
     }
-  }, [gameOver, moveHistory, mode, saveCurrentGame]);
+
+    if (!gameOver && mode === "ai" && aiColorConfirmed) {
+      saveCurrentGame(false);
+    }
+
+    if (!gameOver && mode === "multiplayer") {
+      saveCurrentGame(false);
+      syncRoomPosition();
+    }
+  }, [gameOver, moveHistory, mode, saveCurrentGame, aiColorConfirmed, syncRoomPosition]);
 
   useEffect(() => {
-    if (gameOver && (mode === "ai" || mode === "local")) {
+    if (gameOver) {
+      if (mode === "multiplayer" && roomId) {
+        void finishRoom(roomId, gameRef.current.fen(), gameRef.current.pgn());
+      }
       saveCurrentGame(true);
     }
-  }, [gameOver, mode, saveCurrentGame]);
+  }, [gameOver, mode, saveCurrentGame, roomId]);
 
   const syncLocalOrientation = useCallback(() => {
     if (mode !== "local") return;
@@ -342,7 +398,7 @@ export function ChessGame({
   }, [getEndState, finishGame, updateStatus, mode, syncLocalOrientation, syncMoveHistory, humanColor]);
 
   useEffect(() => {
-    if (mode !== "ai") return;
+    if (mode !== "ai" || !aiColorConfirmed) return;
     // If human chose black, AI (white) should move first
     if (moveHistory.length === 0) {
       const g = gameRef.current;
@@ -350,7 +406,7 @@ export function ChessGame({
       const currentTurn = g.turn() === "w" ? "white" : "black";
       if (currentTurn === aiColor) setTimeout(aiMove, 400);
     }
-  }, [mode, humanColor, aiMove, moveHistory]);
+  }, [mode, humanColor, aiMove, moveHistory, aiColorConfirmed]);
 
   const onSquareClick = useCallback(
     (square: string) => {
@@ -540,6 +596,12 @@ export function ChessGame({
 
   const pgn = gameRef.current.pgn();
 
+  const coachAnalysisScope = useMemo((): CoachAnalysisScope => {
+    if (mode === "local") return { kind: "both" };
+    if (mode === "ai") return { kind: "player", color: humanColor };
+    return { kind: "player", color: playerColor };
+  }, [mode, humanColor, playerColor]);
+
   return (
     <>
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -558,24 +620,33 @@ export function ChessGame({
                   · вы {playerColor === "white" ? "белыми" : "чёрными"}
                 </span>
               )}
-              {mode === "ai" && moveHistory.length === 0 && (
-                <div className="ml-4 flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant={humanColor === "white" ? "secondary" : "ghost"}
-                    onClick={() => setHumanColor("white")}
-                  >
-                    Я — белыми
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={humanColor === "black" ? "secondary" : "ghost"}
-                    onClick={() => setHumanColor("black")}
-                  >
-                    Я — чёрными
-                  </Button>
-                </div>
-              )}
+              {mode === "ai" && !aiColorConfirmed && (
+            <div className="mt-4 flex flex-col items-center justify-center gap-3 rounded-2xl border border-muted-foreground/10 bg-muted/5 p-4 text-center text-sm text-foreground sm:flex-row sm:justify-end">
+              <div className="min-w-[220px] text-left text-sm font-medium">
+                Выберите цвет перед началом партии
+              </div>
+              <Button
+                size="sm"
+                variant={humanColor === "white" ? "secondary" : "ghost"}
+                onClick={() => {
+                  setHumanColor("white");
+                  setAiColorConfirmed(true);
+                }}
+              >
+                Я — белыми
+              </Button>
+              <Button
+                size="sm"
+                variant={humanColor === "black" ? "secondary" : "ghost"}
+                onClick={() => {
+                  setHumanColor("black");
+                  setAiColorConfirmed(true);
+                }}
+              >
+                Я — чёрными
+              </Button>
+            </div>
+          )}
             </div>
             <div className="flex gap-2">
               {mode === "multiplayer" && roomId && (
@@ -624,13 +695,27 @@ export function ChessGame({
           </div>
           <div className="mx-auto w-full max-w-[min(92vw,640px)]">
             {mounted ? (
-              <Chessboard options={options} />
+              mode === "ai" && !aiColorConfirmed ? (
+                <div className="glass aspect-square rounded-xl p-8 text-center text-sm text-foreground flex flex-col items-center justify-center gap-4">
+                  <div className="text-base font-semibold">Выберите цвет, чтобы начать партию</div>
+                  <div className="text-muted-foreground max-w-sm">
+                    Партия против ИИ начнётся после выбора: вы будете играть за выбранный цвет, а ИИ — за другой.
+                  </div>
+                </div>
+              ) : (
+                <Chessboard options={options} />
+              )
             ) : (
               <div className="aspect-square animate-pulse rounded-xl bg-muted/30" />
             )}
           </div>
         </div>
-        <GameCoachPanel pgn={pgn} moveHistory={moveHistory} gameOver={!!gameOver} />
+        <GameCoachPanel
+          pgn={pgn}
+          moveHistory={moveHistory}
+          gameOver={!!gameOver}
+          analysisScope={coachAnalysisScope}
+        />
       </div>
 
       <Dialog open={endDialogOpen} onOpenChange={(o) => setEndDialogOpen(o)}>

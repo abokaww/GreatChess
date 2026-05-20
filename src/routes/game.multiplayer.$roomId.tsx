@@ -2,8 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { ChessGame } from "@/components/ChessGame";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { fetchSavedGamesForUser, loadLatestOngoingGame } from "@/lib/game-repository";
+import { joinRoom, type RoomRecord } from "@/lib/rooms";
+import type { StoredGame } from "@/lib/game-storage";
 import { Loader2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "@tanstack/react-router";
@@ -11,11 +13,6 @@ import { useNavigate } from "@tanstack/react-router";
 export const Route = createFileRoute("/game/multiplayer/$roomId")({
   component: GameMultiplayer,
 });
-
-type PresenceMeta = {
-  userId: string;
-  joinedAt: number;
-};
 
 function GameMultiplayer() {
   const { roomId } = Route.useParams();
@@ -25,7 +22,10 @@ function GameMultiplayer() {
   const [whiteUserId, setWhiteUserId] = useState<string | null>(null);
   const [blackUserId, setBlackUserId] = useState<string | null>(null);
   const [roomFull, setRoomFull] = useState(false);
+  const [roomMissing, setRoomMissing] = useState(false);
   const [connecting, setConnecting] = useState(true);
+  const [resumeGame, setResumeGame] = useState<StoredGame | null>(null);
+  const [roomState, setRoomState] = useState<RoomRecord | null>(null);
 
   const [guestId] = useState(() => {
     if (typeof window === "undefined") return "guest-ssr";
@@ -40,47 +40,81 @@ function GameMultiplayer() {
   const currentUserId = user?.id ?? `guest-${guestId}`;
 
   useEffect(() => {
-    const ch = supabase.channel(`room:${roomId}:lobby`, {
-      config: { presence: { key: currentUserId } },
-    });
+    let cancelled = false;
 
-    ch.on("presence", { event: "sync" }, () => {
-      const state = ch.presenceState<PresenceMeta>();
-      const players = Object.values(state)
-        .flat()
-        .sort((a, b) => a.joinedAt - b.joinedAt);
+    async function connect() {
+      setConnecting(true);
+      const joined = await joinRoom(roomId, currentUserId);
+      if (cancelled) return;
 
-      if (players.length > 2) {
-        setRoomFull(true);
+      if (!joined.ok) {
+        if (joined.reason === "full") setRoomFull(true);
+        if (joined.reason === "not_found") setRoomMissing(true);
         setConnecting(false);
         return;
       }
 
-      const white = players[0]?.userId ?? null;
-      const black = players[1]?.userId ?? null;
-      setWhiteUserId(white);
-      setBlackUserId(black);
+      setPlayerColor(joined.color);
+      setWhiteUserId(joined.whiteUserId);
+      setBlackUserId(joined.blackUserId);
+      setRoomState(joined.room);
 
-      const myIndex = players.findIndex((p) => p.userId === currentUserId);
-      if (myIndex === 0) setPlayerColor("white");
-      else if (myIndex === 1) setPlayerColor("black");
-      else if (players.length < 2) setPlayerColor("white");
-      setConnecting(false);
-    });
-
-    ch.subscribe(async (status) => {
-      if (status === "SUBSCRIBED") {
-        await ch.track({
-          userId: currentUserId,
-          joinedAt: Date.now(),
-        } as PresenceMeta);
+      let roomMatch = (await loadLatestOngoingGame("multiplayer", user?.id ?? null)) ?? null;
+      if (roomMatch?.roomId !== roomId && user?.id) {
+        const games = await fetchSavedGamesForUser(user.id);
+        roomMatch = games.find((g) => g.roomId === roomId && !g.finished) ?? null;
+      } else if (roomMatch?.roomId !== roomId) {
+        roomMatch = null;
       }
-    });
 
+      if (roomMatch) {
+        setResumeGame(roomMatch);
+      } else if (
+        joined.room.pgn &&
+        joined.room.fen !== "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+      ) {
+        setResumeGame({
+          id: crypto.randomUUID(),
+          mode: "multiplayer",
+          title: `Онлайн: ${roomId}`,
+          roomId,
+          updatedAt: Date.now(),
+          fen: joined.room.fen,
+          pgn: joined.room.pgn,
+          playerColor: joined.color,
+          boardTheme: "default",
+          pieceTheme: "default",
+          finished: false,
+        });
+      }
+
+      setConnecting(false);
+    }
+
+    void connect();
     return () => {
-      supabase.removeChannel(ch);
+      cancelled = true;
     };
-  }, [roomId, currentUserId]);
+  }, [roomId, currentUserId, user?.id]);
+
+  if (roomMissing) {
+    return (
+      <div className="min-h-screen">
+        <AppHeader />
+        <main className="container mx-auto px-4 py-16 text-center">
+          <div className="glass mx-auto max-w-md rounded-2xl p-8">
+            <h1 className="text-xl font-semibold">Комната не найдена</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Ссылка устарела или комната ещё не создана. Попросите друга отправить новую ссылку.
+            </p>
+            <Button className="mt-6" onClick={() => navigate({ to: "/" })}>
+              На главную
+            </Button>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   if (roomFull) {
     return (
@@ -120,7 +154,9 @@ function GameMultiplayer() {
         <h1 className="mb-2 text-2xl font-semibold tracking-tight">Онлайн · комната {roomId}</h1>
         <p className="mb-6 text-sm text-muted-foreground">
           Вы играете {playerColor === "white" ? "белыми" : "чёрными"}.
-          {playerColor === "white" ? " Отправьте ссылку другу." : " Ожидайте ход или сделайте свой."}
+          {roomState?.host_id === currentUserId
+            ? " Отправьте ссылку другу."
+            : " Ожидайте ход или сделайте свой."}
         </p>
         <ChessGame
           mode="multiplayer"
@@ -130,6 +166,7 @@ function GameMultiplayer() {
           blackUserId={blackUserId}
           currentUserId={currentUserId}
           onEloApplied={reloadProfile}
+          resumeGame={resumeGame}
         />
       </main>
     </div>

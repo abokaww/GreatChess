@@ -1,4 +1,4 @@
-export type GameMode = "ai" | "local";
+export type GameMode = "ai" | "local" | "multiplayer";
 
 export type StoredGame = {
   id: string;
@@ -7,6 +7,7 @@ export type StoredGame = {
   updatedAt: number;
   fen: string;
   pgn: string;
+  roomId?: string;
   humanColor?: "white" | "black";
   playerColor?: "white" | "black";
   boardTheme: string;
@@ -30,10 +31,26 @@ export function loadSavedGames(): StoredGame[] {
   if (typeof window === "undefined") return [];
   const saved = safeParse<StoredGame[]>(window.localStorage.getItem(STORAGE_KEY));
   if (!Array.isArray(saved)) return [];
-  return saved.filter((item) => item && typeof item.id === "string");
+
+  const merged = new Map<string, StoredGame>();
+  for (const item of saved) {
+    if (!item || typeof item.id !== "string") continue;
+    const existing = merged.get(item.id);
+    if (!existing || item.updatedAt > existing.updatedAt) {
+      merged.set(item.id, item);
+    }
+  }
+
+  return Array.from(merged.values());
 }
 
 export function loadLatestSavedGame(mode: GameMode): StoredGame | null {
+  const games = loadSavedGames().filter((item) => item.mode === mode && !item.finished);
+  if (!games.length) return null;
+  return games.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+}
+
+export function loadOngoingGame(mode: GameMode): StoredGame | null {
   const games = loadSavedGames().filter((item) => item.mode === mode && !item.finished);
   if (!games.length) return null;
   return games.sort((a, b) => b.updatedAt - a.updatedAt)[0];
@@ -45,9 +62,22 @@ export function getSavedGame(id: string): StoredGame | null {
 
 export function saveGame(game: StoredGame) {
   if (typeof window === "undefined") return;
-  const games = loadSavedGames().filter((item) => item.id !== game.id);
+  const games = loadSavedGames().filter(
+    (item) =>
+      item.id !== game.id &&
+      !(item.mode === game.mode && !item.finished && !game.finished),
+  );
   games.push(game);
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(games));
+
+  const merged = new Map<string, StoredGame>();
+  for (const item of games) {
+    const existing = merged.get(item.id);
+    if (!existing || item.updatedAt >= existing.updatedAt) {
+      merged.set(item.id, item);
+    }
+  }
+
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(merged.values())));
 }
 
 export function removeSavedGame(id: string) {

@@ -3,7 +3,11 @@ import { Link } from "@tanstack/react-router";
 import { Brain, Loader2, Sparkles, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { fetchGmAnalysis, GeminiOverloadError } from "@/lib/gemini-coach";
+import {
+  fetchGmAnalysis,
+  GeminiOverloadError,
+  type CoachAnalysisScope,
+} from "@/lib/gemini-coach";
 import {
   AI_COACH_MESSAGES,
   checkAiCoachAccess,
@@ -14,9 +18,18 @@ type Props = {
   pgn: string;
   moveHistory: string[];
   gameOver: boolean;
+  analysisScope: CoachAnalysisScope;
 };
 
-export function GameCoachPanel({ pgn, moveHistory, gameOver }: Props) {
+function scopeHint(scope: CoachAnalysisScope): string | null {
+  if (scope.kind === "both") return null;
+  return scope.color === "white"
+    ? "Разбор только ваших ходов (белые)"
+    : "Разбор только ваших ходов (чёрные)";
+}
+
+export function GameCoachPanel({ pgn, moveHistory, gameOver, analysisScope }: Props) {
+  const scopeSubtitle = scopeHint(analysisScope);
   const { user, profile, reloadProfile } = useAuth();
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [panelMessage, setPanelMessage] = useState<string | null>(null);
@@ -46,7 +59,7 @@ export function GameCoachPanel({ pgn, moveHistory, gameOver }: Props) {
 
     setLoading(true);
     try {
-      const text = await fetchGmAnalysis(pgn);
+      const text = await fetchGmAnalysis(pgn, analysisScope);
       await incrementAiRequestCount(user.id);
       await reloadProfile();
       setAnalysis(text);
@@ -126,12 +139,15 @@ export function GameCoachPanel({ pgn, moveHistory, gameOver }: Props) {
                 )}
               </div>
             )}
+            {scopeSubtitle && (
+              <p className="mb-3 text-center text-xs text-muted-foreground">{scopeSubtitle}</p>
+            )}
             <Button
               onClick={handleAnalyze}
               className="w-full bg-gradient-primary text-primary-foreground shadow-glow"
             >
               <Brain className="mr-2 h-4 w-4" />
-              Разбор партии
+              {analysisScope.kind === "both" ? "Разбор партии" : "Разбор моей игры"}
             </Button>
           </>
         )}

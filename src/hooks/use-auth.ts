@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { syncLocalGamesToCloud } from "@/lib/game-repository";
 
 export const DEFAULT_ELO = 1000;
 
@@ -55,7 +56,10 @@ export function useAuth() {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
-        setTimeout(() => loadProfile(s.user.id), 0);
+        setTimeout(() => {
+          void loadProfile(s.user.id);
+          void syncLocalGamesToCloud(s.user.id);
+        }, 0);
       } else {
         setProfile(GUEST_PROFILE);
       }
@@ -65,7 +69,10 @@ export function useAuth() {
       .then(({ data }) => {
         setSession(data.session);
         setUser(data.session?.user ?? null);
-        if (data.session?.user) loadProfile(data.session.user.id);
+        if (data.session?.user) {
+          void loadProfile(data.session.user.id);
+          void syncLocalGamesToCloud(data.session.user.id);
+        }
         else setProfile(GUEST_PROFILE);
         setLoading(false);
       })

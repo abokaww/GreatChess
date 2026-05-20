@@ -1,7 +1,30 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const SYSTEM_PROMPT = (pgn: string) =>
+/** Локальная игра — оба игрока; ИИ / мультиплеер — только указанная сторона. */
+export type CoachAnalysisScope =
+  | { kind: "both" }
+  | { kind: "player"; color: "white" | "black" };
+
+function colorLabelRu(color: "white" | "black"): string {
+  return color === "white" ? "белых" : "чёрных";
+}
+
+function scopeInstruction(scope: CoachAnalysisScope): string {
+  if (scope.kind === "both") {
+    return "Проанализируй партию целиком: разбирай ошибки и сильные стороны обоих игроков.";
+  }
+  const side = colorLabelRu(scope.color);
+  return (
+    `Проанализируй ТОЛЬКО игру ${side}. ` +
+    `Ходы соперника упоминай лишь как контекст (что противник сделал), ` +
+    `но критику, рекомендации, работу над ошибками и итоговую оценку давай исключительно для ${side}. ` +
+    `Не анализируй и не оценивай игру соперника.`
+  );
+}
+
+const SYSTEM_PROMPT = (pgn: string, scope: CoachAnalysisScope) =>
   `Ты профессиональный шахматный ИИ-тренер. Проанализируй эту партию по PGN: ${pgn}.
+${scopeInstruction(scope)}
 Ответ должен быть СТРОГО НА РУССКОМ ЯЗЫКЕ, в понятной, дружелюбной форме и разбит на блоки.
 Требования к тону и формату (строго соблюдай):
 - Избегай длинной шахматной нотации и строк вида "e4 e5..." — объясняй ходами понятными словами, например: "Ход 12: конь на f3 напал на пешку, что привело к...".
@@ -31,7 +54,10 @@ function isOverloadError(error: unknown): boolean {
   return false;
 }
 
-export async function fetchGmAnalysis(pgn: string): Promise<string> {
+export async function fetchGmAnalysis(
+  pgn: string,
+  scope: CoachAnalysisScope = { kind: "both" },
+): Promise<string> {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("Не задан VITE_GEMINI_API_KEY в .env");
@@ -43,7 +69,7 @@ export async function fetchGmAnalysis(pgn: string): Promise<string> {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    const result = await model.generateContent(SYSTEM_PROMPT(pgn));
+    const result = await model.generateContent(SYSTEM_PROMPT(pgn, scope));
     const text = result.response.text();
     if (!text?.trim()) {
       throw new Error("Пустой ответ от Gemini");

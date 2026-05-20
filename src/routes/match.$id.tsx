@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppHeader } from "@/components/AppHeader";
 import { ChessGame } from "@/components/ChessGame";
-import { getSavedGame, StoredGame } from "@/lib/game-storage";
+import { getGameById } from "@/lib/game-repository";
+import type { StoredGame } from "@/lib/game-storage";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -13,17 +15,38 @@ export const Route = createFileRoute("/match/$id")({
 function MatchResume() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [savedGame, setSavedGame] = useState<StoredGame | null>(null);
 
   useEffect(() => {
-    const game = getSavedGame(id);
-    if (!game) {
-      toast.error("Сохранённая партия не найдена");
-      navigate({ to: "/matches" });
-      return;
+    let cancelled = false;
+
+    async function load() {
+      const game = await getGameById(id, user?.id ?? null);
+      if (cancelled) return;
+
+      if (!game) {
+        toast.error("Сохранённая партия не найдена");
+        navigate({ to: "/matches" });
+        return;
+      }
+
+      if (game.mode === "multiplayer" && game.roomId) {
+        navigate({
+          to: "/game/multiplayer/$roomId",
+          params: { roomId: game.roomId },
+        });
+        return;
+      }
+
+      setSavedGame(game);
     }
-    setSavedGame(game);
-  }, [id, navigate]);
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, navigate, user?.id]);
 
   if (!savedGame) {
     return (

@@ -14,6 +14,96 @@ export type Database = {
   }
   public: {
     Tables: {
+      rooms: {
+        Row: {
+          id: string
+          host_id: string
+          host_color: string
+          white_player_id: string | null
+          black_player_id: string | null
+          fen: string
+          pgn: string
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          host_id: string
+          host_color: string
+          white_player_id?: string | null
+          black_player_id?: string | null
+          fen?: string
+          pgn?: string
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          host_id?: string
+          host_color?: string
+          white_player_id?: string | null
+          black_player_id?: string | null
+          fen?: string
+          pgn?: string
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      saved_games: {
+        Row: {
+          id: string
+          user_id: string
+          mode: string
+          title: string
+          room_id: string | null
+          fen: string
+          pgn: string
+          human_color: string | null
+          player_color: string | null
+          board_theme: string
+          piece_theme: string
+          finished: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          mode: string
+          title: string
+          room_id?: string | null
+          fen: string
+          pgn?: string
+          human_color?: string | null
+          player_color?: string | null
+          board_theme?: string
+          piece_theme?: string
+          finished?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          mode?: string
+          title?: string
+          room_id?: string | null
+          fen?: string
+          pgn?: string
+          human_color?: string | null
+          player_color?: string | null
+          board_theme?: string
+          piece_theme?: string
+          finished?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           ai_requests_count: number

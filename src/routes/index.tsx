@@ -2,12 +2,15 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Bot, Users, Trophy, Sparkles, ArrowRight, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { lovable } from "@/integrations/auth/index";
 import { AppHeader } from "@/components/AppHeader";
 import { ProfileCard } from "@/components/ProfileCard";
 import { FriendPlayDialog } from "@/components/FriendPlayDialog";
-import { loadSavedGames, removeSavedGame, StoredGame } from "@/lib/game-storage";
+import { loadSavedGames, StoredGame } from "@/lib/game-storage";
+import { deleteGameForUser, fetchSavedGamesForUser } from "@/lib/game-repository";
+import { createRoom } from "@/lib/rooms";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -19,6 +22,9 @@ function Index() {
   const navigate = useNavigate();
   const [friendOpen, setFriendOpen] = useState(false);
   const [ongoingGames, setOngoingGames] = useState<StoredGame[]>([]);
+  const [warningOpen, setWarningOpen] = useState(false);
+  const [warningGame, setWarningGame] = useState<StoredGame | null>(null);
+  const [warningMode, setWarningMode] = useState<StoredGame["mode"] | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -26,27 +32,89 @@ function Index() {
   }, [user, reloadProfile]);
 
   useEffect(() => {
-    setOngoingGames(loadSavedGames().filter((game) => !game.finished));
-  }, []);
+    let cancelled = false;
+    async function loadOngoing() {
+      const games = user?.id
+        ? await fetchSavedGamesForUser(user.id)
+        : loadSavedGames();
+      if (!cancelled) {
+        setOngoingGames(games.filter((game) => !game.finished));
+      }
+    }
+    void loadOngoing();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
-  const hasOngoingGame = ongoingGames.length > 0;
-  const latestOngoingGame = [...ongoingGames].sort((a, b) => b.updatedAt - a.updatedAt)[0];
-
-  const handleStartNewGame = (action: () => void) => {
-    if (hasOngoingGame) {
-      toast.error(
-        "У вас есть незавершённая партия. Сначала завершите или продолжите её, потом создавайте новую.",
-      );
+  const handleStartNewGame = (mode: StoredGame["mode"], action: () => void) => {
+    const ongoingModeGame = ongoingGames.find((game) => game.mode === mode);
+    if (ongoingModeGame) {
+      setWarningMode(mode);
+      setWarningGame(ongoingModeGame);
+      setWarningOpen(true);
       return;
     }
     action();
   };
 
-  const finishCurrentGame = () => {
-    if (!latestOngoingGame) return;
-    removeSavedGame(latestOngoingGame.id);
-    setOngoingGames((current) => current.filter((game) => game.id !== latestOngoingGame.id));
-    toast.success("Текущая партия отмечена как завершённая.");
+  const closeWarning = () => {
+    setWarningOpen(false);
+    setWarningGame(null);
+    setWarningMode(null);
+  };
+
+  const handleContinue = () => {
+    if (!warningGame) return;
+    closeWarning();
+    if (warningGame.mode === "multiplayer" && warningGame.roomId) {
+      navigate({
+        to: "/game/multiplayer/$roomId",
+        params: { roomId: warningGame.roomId },
+      });
+      return;
+    }
+    navigate({ to: `/match/${warningGame.id}` });
+  };
+
+  const handleSurrender = () => {
+    if (!warningGame) return;
+    void deleteGameForUser(warningGame.id, user?.id);
+    setOngoingGames((current) => current.filter((game) => game.id !== warningGame.id));
+    toast.success("Незавершённая партия отмечена как сданная.");
+    closeWarning();
+  };
+
+  const handleStartFresh = () => {
+    if (!warningMode) return;
+    if (warningGame) {
+      void deleteGameForUser(warningGame.id, user?.id);
+      setOngoingGames((current) => current.filter((game) => game.id !== warningGame.id));
+    }
+    closeWarning();
+    if (warningMode === "ai") navigate({ to: "/game/ai" });
+    if (warningMode === "local") navigate({ to: "/game/local" });
+  };
+
+  const startMultiplayerRoom = async (hostColor: "white" | "black") => {
+    const roomId = Math.random().toString(36).slice(2, 10);
+    let guestId = sessionStorage.getItem("gc_guest_id");
+    if (!guestId) {
+      guestId = crypto.randomUUID();
+      sessionStorage.setItem("gc_guest_id", guestId);
+    }
+    const hostId = user?.id ?? `guest-${guestId}`;
+    const created = await createRoom(roomId, hostId, hostColor);
+    if (!created.ok) {
+      toast.error(created.error || "Не удалось создать комнату");
+      return;
+    }
+    navigate({ to: "/game/multiplayer/$roomId", params: { roomId } });
+  };
+
+  const handleViewMatches = () => {
+    closeWarning();
+    navigate({ to: "/matches" });
   };
 
   const signInGoogle = async () => {
@@ -71,7 +139,7 @@ function Index() {
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button
               size="lg"
-              onClick={() => handleStartNewGame(() => navigate({ to: "/game/ai" }))}
+              onClick={() => handleStartNewGame("ai", () => navigate({ to: "/game/ai" }))}
               className="bg-gradient-primary text-primary-foreground shadow-glow hover:opacity-90"
             >
               <Bot className="mr-2 h-4 w-4" /> Начать партию
@@ -114,30 +182,6 @@ function Index() {
             ))}
           </div>
 
-          {hasOngoingGame && latestOngoingGame && (
-            <div className="glass mt-10 rounded-3xl border border-orange-200 bg-orange-50/70 p-6">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-orange-700">Внимание</p>
-                  <h2 className="mt-2 text-2xl font-semibold text-orange-900">У вас есть незавершённая партия</h2>
-                  <p className="mt-2 max-w-2xl text-sm text-orange-800">
-                    Чтобы начать новую игру, сначала продолжите или завершите текущую партию. Это поможет избежать путаницы между ИИ, локальными и онлайн встречами.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button size="sm" onClick={() => navigate({ to: `/match/${latestOngoingGame.id}` })}>
-                    Продолжить
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={finishCurrentGame}>
-                    Завершить текущую
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => navigate({ to: "/matches" })}>
-                    Все матчи
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
         </section>
 
         <section className="mx-auto mt-16 max-w-5xl">
@@ -148,14 +192,14 @@ function Index() {
               icon={Bot}
               title="Играть с ИИ"
               desc="Мгновенная партия против бота"
-              onClick={() => navigate({ to: "/game/ai" })}
+              onClick={() => handleStartNewGame("ai", () => navigate({ to: "/game/ai" }))}
               accent
             />
             <DashCard
               icon={Users}
               title="Играть с другом"
               desc="Локально или онлайн по ссылке"
-              onClick={() => handleStartNewGame(() => setFriendOpen(true))}
+              onClick={() => setFriendOpen(true)}
             />
             <DashCard
               icon={Sparkles}
@@ -182,7 +226,11 @@ function Index() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <div className="text-sm text-muted-foreground">
-                          {game.mode === "ai" ? "ИИ" : "Локальная"}
+                          {game.mode === "ai"
+                            ? "ИИ"
+                            : game.mode === "local"
+                            ? "Локальная"
+                            : "Онлайн"}
                         </div>
                         <div className="mt-1 text-lg font-semibold">{game.title}</div>
                         <div className="mt-2 text-sm text-muted-foreground">
@@ -190,7 +238,19 @@ function Index() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <Button size="sm" onClick={() => navigate({ to: `/match/${game.id}` })}>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            if (game.mode === "multiplayer" && game.roomId) {
+                              navigate({
+                                to: "/game/multiplayer/$roomId",
+                                params: { roomId: game.roomId },
+                              });
+                              return;
+                            }
+                            navigate({ to: `/match/${game.id}` });
+                          }}
+                        >
                           Продолжить
                         </Button>
                       </div>
@@ -218,7 +278,50 @@ function Index() {
         </section>
         {loading && null}
       </main>
-      <FriendPlayDialog open={friendOpen} onOpenChange={setFriendOpen} />
+      <FriendPlayDialog
+        open={friendOpen}
+        onOpenChange={setFriendOpen}
+        onPlayLocal={() => handleStartNewGame("local", () => navigate({ to: "/game/local" }))}
+        onPlayMultiplayer={(hostColor) =>
+          handleStartNewGame("multiplayer", () => void startMultiplayerRoom(hostColor))
+        }
+      />
+      <Dialog open={warningOpen} onOpenChange={setWarningOpen}>
+        <DialogContent className="glass border-border/50 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Внимание</DialogTitle>
+            <DialogDescription>
+              У вас уже есть незавершённая партия в этом режиме.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Если вы начнёте новую партию, старая будет завершена.
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Button onClick={handleContinue} className="w-full">
+              Доиграть
+            </Button>
+            <Button variant="outline" onClick={handleSurrender} className="w-full">
+              Сдаться
+            </Button>
+            {warningMode !== "multiplayer" && (
+              <Button variant="secondary" onClick={handleStartFresh} className="w-full">
+                Начать заново
+              </Button>
+            )}
+            {warningMode === "multiplayer" && (
+              <p className="text-center text-xs text-muted-foreground">
+                Для онлайн-партии можно продолжить текущую комнату или сдаться и создать новую.
+              </p>
+            )}
+            <Button variant="ghost" onClick={handleViewMatches} className="w-full">
+              Посмотреть все матчи
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
